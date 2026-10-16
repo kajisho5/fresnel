@@ -1,6 +1,6 @@
-# fresnel — 詳細設計書 v0.1（Step 1）
+# fresnel — 詳細設計書 v0.2
 
-> 状態：**レビュー待ち**。この設計書と `design/*.svg` の承認後に実装（Step 3）へ進む。
+> 状態：**承認済み（2026-10-17）**。v0.2 で MCP サーバー（§16）を追加し、実ファイルで判明したスキーマ（§2.1）と描画方式（§7）を反映した。
 > 表記ルール：**[事実]** 一次情報で確認済み / **[推測]** 根拠はあるが未検証 / **[不明]** 確認できていない
 
 ---
@@ -12,7 +12,7 @@
 | 名称 | **fresnel** |
 | 一言 | Open-source Liquid Glass icon composer |
 | 目的 | Apple Icon Composer 相当の「レイヤー型 Liquid Glass アイコン」を編集・プレビュー・書き出しできる OSS アプリ |
-| 差別化 | ① **Mac 以外（Windows / Linux / ブラウザ）でも編集できる** ② GUI 編集＋リアルタイム近似プレビュー ③ `.icon` と従来形式（.icns / appiconset / PNG）を 1 本で書き出し ④ CLI 同梱で CI から使える |
+| 差別化 | ① **Mac 以外（Windows / Linux / ブラウザ）でも編集できる** ② GUI 編集＋リアルタイム近似プレビュー ③ `.icon` と従来形式（.icns / appiconset / PNG）を 1 本で書き出し ④ CLI 同梱で CI から使える ⑤ **MCP サーバー同梱**：Claude などの AI エージェントがアイコンを作成・編集・検証・書き出しできる |
 | ライセンス | MIT |
 | リポ | `kajisho5/fresnel` |
 
@@ -45,6 +45,18 @@
 - **[事実（解析ベース）]** `.icon` はディレクトリで、`icon.json` と `Assets/`（SVG / PNG）を含む。出典：glassmith README、schema/icon-json.md
 - **[事実（解析ベース）]** キーは kebab-case。主なキーは `groups[]`、`fill`、`fill-specializations`、`supported-platforms`。group には `layers`、`shadow`、`translucency`、`blur-material`、`opacity`、`lighting`、`specular`、`blend-mode`。layer には `image-name`、`fill`、`opacity`、`glass`、`position`。外観ごとの上書きは `*-specializations`（`appearance`: light/dark/tinted、`idiom`: square/macOS/iOS/watchOS/visionOS）。
 - **[推測]** Xcode のバージョンアップでスキーマが変わる可能性がある → スキーマにバージョンを持たせ、未知のキーは保持したまま書き戻す（§6.4）。
+### 2.1 実ファイルで確認したスキーマ（v0.2 追記）
+
+出典：peterpoliwoda/icon-composer-template の `Tests/IconComposerModelTests/Fixtures/sample-0{1,2,3}.json`（Icon Composer が出力した icon.json）
+
+- **[事実]** 値は「素のキー（`shadow`）」と「`<key>-specializations` 配列」のどちらでも書かれる。配列の中の `appearance` なしの要素がベース値になる。
+- **[事実]** 実ファイルに出てくるキー：`fill` の形として `linear-gradient`（2 色の配列＋`orientation.start/stop`）と `none`、group の `blur`、`refraction`、shadow の `kind` = `layer-color`（ケバブケース）。glassmith の資料にある `layerColor` は誤り。
+- **[事実]** 値 `null` が明示的に書かれることがある（`blur-material: null`）。キーを省略した場合と区別して保持する。
+- **[事実]** `extended-gray:1.0,1.0` のように、2 成分の色はグレースケール。
+- **[推測]** `groups` と `layers` の配列は**先頭が最前面**。根拠：decant の実装では「.icon lists them front-to-back」としている。glassmith の資料とは矛盾するため、定数 1 か所で切り替えられるようにしておく。
+- **[推測]** `translation-in-points` はキャンバス中心からのオフセットで、**y は下向きが正**。キャンバスは 1024pt（decant の実装に準拠）。画像は「取り込んだときのサイズ × scale」で中央に配置する。
+- **[推測]** `linear-gradient` の `orientation` はレイヤーのバウンディングボックスを基準にした単位座標（範囲外の値もとる）。省略時は上から下。
+
 - **[事実]** `.icon` → `Assets.car` のコンパイルは Apple の `actool`（Xcode 26 以降）が必要。actool はプロプライエタリで、Mac でしか動かない（出典：wailsapp/wails #4909、glassmith README）。
 
 ---
@@ -69,6 +81,7 @@
 | F-12 | 取り消し | Undo / Redo（無制限、ドキュメント単位） |
 | F-13 | CLI | `fresnel build spec.json`、`fresnel validate x.icon`、`fresnel render x.icon --appearance dark` |
 | F-14 | i18n | 英語（デフォルト）と日本語 |
+| F-15 | **MCP サーバー** | stdio で動く `fresnel-mcp`。作成、検査、レイヤー追加、属性変更、検証、レンダリング（PNG を画像として返す）、書き出し。詳細は §16 |
 
 ### 3.2 対象外（v0.1 ではやらない）
 
@@ -101,9 +114,10 @@
 | デスクトップ | **Tauri v2**（Rust） | Electron よりはるかに小さい。macOS / Windows / Linux のネイティブメニューとファイルダイアログ |
 | 状態管理 | **Zustand ＋ Immer ＋ zundo**（Undo/Redo） | ドキュメントの木構造をイミュータブルに更新し、履歴を自動で取る |
 | スキーマ | **Zod** | `icon.json` の検証。型を生成し、未知キーは passthrough で保持 |
-| 描画 | **WebGL2**（自作シェーダ）。フォールバックは Canvas2D | ガラスの屈折、スペキュラ、ブラーを近似する |
+| 描画 | **SVG 合成エンジン**（`@fresnel/render`）。ブラウザは `<img>` から Canvas、Node は `@resvg/resvg-js` でラスタライズ | UI・CLI・MCP で同じ見た目を決定的に出せる（§7）。WebGL2 の屈折パスは v0.3 で追加 |
 | SVG 処理 | DOMPurify（サニタイズ）＋ resvg-wasm（ラスタライズ） | ブラウザ間の差をなくし、書き出しの結果を決定的にする |
-| 書き出し | Rust 側：`.icns` エンコード（`icns` crate）、zip、ファイル書き込み | Web 版は同じ処理を TS 実装で行い、zip ダウンロード |
+| 書き出し | TS 実装（`.icns` エンコーダを自作、zip は fflate）を全環境で共有。Tauri の Rust 側はファイル I/O とダイアログだけを担当 | ロジックを 1 か所にまとめる |
+| MCP | `@modelcontextprotocol/sdk`（stdio トランスポート） | 公式 SDK |
 | UI 部品 | Radix UI Primitives（ヘッドレス） | アクセシビリティ（a11y）を担保しつつ、見た目は自前のトークンで作る |
 | アイコン | Lucide（ISC ライセンス） | SF Symbols は再配布できないため使わない |
 | テスト | Vitest（ユニット）、Playwright（E2E・スクショ差分）、cargo test | |
@@ -148,56 +162,39 @@
 
 ### 6.1 内部モデル（TypeScript）
 
+実ファイルでは、どの属性も「素のキー」と「specializations」の両方の形をとりうる（§2.1）。そこで**属性を汎用の `Prop<T>` で保持**し、元の書式を覚えておいて同じ形で書き戻す。
+
 ```ts
-type Appearance = 'default' | 'dark' | 'clear-light' | 'clear-dark' | 'tinted-light' | 'tinted-dark';
+type AppearanceKey = 'light' | 'dark' | 'tinted';
 type Idiom = 'square' | 'macOS' | 'iOS' | 'watchOS' | 'visionOS';
 
-/** 外観 / idiom ごとの上書き。解決順：exact > appearance > idiom > base */
-interface Specialized<T> { base: T; overrides: { appearance?: 'light'|'dark'|'tinted'; idiom?: Idiom; value: T }[] }
+interface Spec<T> { appearance?: AppearanceKey; idiom?: Idiom; value: T; extra?: Record<string, unknown> }
+/** form: 元の書式。'plain' = "key": v / 'specs' = "key-specializations": [...] */
+interface Prop<T> { form: 'plain' | 'specs'; base?: T; hasBase: boolean; specs: Spec<T>[] }
+// 解決順：appearance+idiom 完全一致 > appearance のみ > idiom のみ > base > 既定値
 
 interface IconDocument {
-  id: string;
-  name: string;                       // "Sample"
-  schemaVersion: 1;                   // fresnel 内部のスキーマ版
-  fill: Specialized<Fill>;
-  colorSpaceForUntaggedSvg: 'display-p3' | 'srgb';
-  supportedPlatforms: { squares: 'shared' | Idiom[]; circles: Idiom[] };
-  groups: Group[];                    // UI 上は front→back で表示、保存時は icon.json の順序に変換
-  assets: Record<string, Asset>;      // key = image-name
-  unknown: Record<string, unknown>;   // 未知キーを保持（往復で消さない）
+  props: Record<string, Prop<unknown>>;   // fill, color-space-for-untagged-svg-colors, supported-platforms ...
+  groups: Group[];                        // 配列順 = icon.json と同じ（先頭が最前面）
+  assets: Map<string, Asset>;             // key = image-name
+  extra: Record<string, unknown>;         // 未知キー（そのまま往復）
+  keyOrder: string[];                     // 書き戻し時のキー順
 }
+interface Group { id: string; props: Record<string, Prop<unknown>>; layers: Layer[]; extra: Record<string, unknown>; keyOrder: string[] }
+interface Layer { id: string; props: Record<string, Prop<unknown>>; extra: Record<string, unknown>; keyOrder: string[] }
 
-interface Group {
-  id: string; name: string;
-  hidden: Specialized<boolean>;
-  glass: { specular: Specialized<boolean>; translucency: Specialized<{ enabled: boolean; value: number }>;
-           blurMaterial: number | null; lighting: 'combined' | 'individual' };
-  shadow: Specialized<{ kind: 'none' | 'neutral' | 'layerColor'; opacity: number }>;
-  opacity: Specialized<number>;
-  blendMode: Specialized<BlendMode>;
-  position: Specialized<Position>;
-  layers: Layer[];
-  unknown: Record<string, unknown>;
-}
-
-interface Layer {
-  id: string; name: string;
-  imageName: Specialized<string>;
-  fill: Specialized<Fill | null>;
-  opacity: Specialized<number>;
-  blendMode: Specialized<BlendMode>;
-  glass: Specialized<boolean>;
-  hidden: Specialized<boolean>;
-  position: Specialized<Position>;
-  unknown: Record<string, unknown>;
-}
-
-type Fill = 'automatic' | 'system-light' | 'system-dark'
-          | { solid: Color } | { automaticGradient: Color };
-interface Color { space: 'srgb'|'extended-srgb'|'display-p3'|'gray'|'extended-gray'; c: number[] }
-interface Position { scale: number; translation: [number, number] }   // points
-interface Asset { name: string; kind: 'svg'|'png'; bytes: Uint8Array; width: number; height: number; sanitized: boolean }
+// 既知の値型（Zod で検証）
+type Fill = 'automatic' | 'system-light' | 'system-dark' | 'none'
+  | { solid: ColorString } | { 'automatic-gradient': ColorString }
+  | { 'linear-gradient': [ColorString, ColorString]; orientation?: { start: XY; stop: XY } };
+type ColorString = string;            // "display-p3:r,g,b,a" / "extended-gray:l,a" など
+interface Position { scale: number; 'translation-in-points': [number, number] }
+interface Shadow { kind: 'none' | 'neutral' | 'layer-color'; opacity: number }
+interface Translucency { enabled: boolean; value: number }
+interface Asset { name: string; kind: 'svg' | 'png' | 'jpg'; bytes: Uint8Array; width: number; height: number }
 ```
+
+既知キーの一覧と既定値は `packages/core/src/schema.ts` に 1 か所でまとめる（未知キーは `extra` に入る）。
 
 ### 6.2 外観のマッピング
 
@@ -226,25 +223,31 @@ interface Asset { name: string; kind: 'svg'|'png'; bytes: Uint8Array; width: num
 
 ## 7. 描画エンジン（プレビュー）
 
-**[推測]** Apple の実描画は非公開のため、目標は「判断に使える近似」。Apple と一致させることはしない。
+**[推測]** Apple の実描画は非公開。目標は「判断に使える近似」で、Apple と一致させることはしない。
 
-パス構成（WebGL2、内部解像度 = 表示サイズ × DPR、最大 2048）
+**方式（v0.2 で変更）**：モデルから**自己完結の SVG を生成**し、各環境でラスタライズする。
 
-1. **背景**：fill（solid / gradient）を描画。automatic-gradient は基準色から上 +8% L、下 −8% L で生成 [推測]
-2. **レイヤー**：テクスチャ化した SVG / PNG を position、opacity、blend-mode で合成（18 種類の blend をシェーダで実装）
-3. **グループのガラス**（glass=ON のグループごと）
-   - 背後のバッファを、グループのアルファから作った法線マップで屈折サンプリングする
-   - 半透明：translucency.value で背後と混ぜる
-   - ブラー：blur-material をガウシアン（2 パスの分離型）で近似
-   - スペキュラ：ライト角度（初期値 −45°）に合わせてエッジにリムハイライトを付ける
-   - 影：neutral / layerColor をオフセットとブラーで描画
-4. **外観変換**：Dark は背景を暗くする。Clear は輝度だけ残してガラスを強める。Tinted は輝度をティント色にマップする
-5. **マスク**：squircle（連続曲率。superellipse n≈5 で近似 [推測]）または circle
-6. **合成**：壁紙の上に描画し、ドロップシャドウを付ける
+- ブラウザ：SVG を Blob URL にし、`<img>` から `<canvas>` に描く（PNG の書き出しも同じ経路）
+- Node（CLI / MCP）：`@resvg/resvg-js` でラスタライズする
+- 利点：UI・CLI・MCP の見た目が一致する。依存が軽く、テストで出力を比較しやすい
+- WebGL2 での真の屈折は v0.3（SVG では背面をスケールさせたブラーで近似する）
 
-フォールバック：WebGL2 が使えない環境では Canvas2D で 2 のみ描画し、ガラスは省略する（UI に「簡易表示」と表示する）。
+合成手順（`@fresnel/render`、キャンバスは 1024pt）
 
----
+1. **背景**：`fill` を解決し、solid / automatic-gradient / linear-gradient / system-light / system-dark を描く
+2. **グループ**：背面から順に描く。各グループでは以下を行う
+   - レイヤー：画像を「取り込んだときのサイズ × scale」で、中心＋translation の位置に配置する。`fill` があればアルファを型にして塗り替える。opacity と blend-mode を適用する
+   - glass（グループに translucency がある、またはいずれかのレイヤーが glass=true）の場合
+     - 背面（それまでに描いたもの）をブラー（blur-material×40px）＋1.03 倍に拡大したものを、グループのアルファでマスクして下に敷く（屈折とすりガラスの近似）
+     - グループ本体を `1 − translucency×0.55` の不透明度で重ねる
+   - specular：グループのアルファから「光源側に寄せたエッジ」を作り、白で加算する（光源の角度は UI で指定、既定 −45°）
+   - shadow：neutral は黒、layer-color はレイヤー自身の色をぼかして下に落とす（opacity を反映）
+3. **外観変換**
+   - Dark：specializations を解決する。背景が未指定なら system-dark にする
+   - Clear：輝度を白（light）またはグレー（dark）のガラスに変換し、背景は半透明のすりガラスにする
+   - Tinted：輝度をティント色の濃淡にマップし、背景はティントの暗色にする
+4. **マスク**：squircle（superellipse n=4.4 [推測]）または circle
+5. **リム**：外周に光源側のハイライトを入れる
 
 ## 8. 書き出し
 
@@ -323,11 +326,10 @@ interface DocState {
   // actions（すべて履歴対象）
   addLayer(groupId: string, asset: Asset): void;
   moveNode(id: string, to: { groupId: string; index: number }): void;
-  setGroupProp<K extends keyof Group>(id: string, key: K, v: unknown, scope: Scope): void;
-  setLayerProp<K extends keyof Layer>(id: string, key: K, v: unknown, scope: Scope): void;
-  setFill(f: Fill, scope: Scope): void;
+  setProp(target: NodeRef, key: string, v: unknown, scope: Scope): void;   // kebab-case のキー
 }
 type Scope = { kind: 'all' } | { kind: 'appearance'; appearance: 'dark' | 'tinted' };
+type NodeRef = { kind: 'document' } | { kind: 'group'; id: string } | { kind: 'layer'; id: string };
 
 // store/ui.ts（履歴対象外）
 interface UIState {
@@ -357,8 +359,9 @@ fresnel/
 ├─ packages/
 │  ├─ ui/                      # React コンポーネント（§10）＋トークン
 │  ├─ core/                    # モデル, Zod スキーマ, icon.json の読み書き, 検証
-│  ├─ renderer/                # WebGL2 プレビューエンジン（React 非依存）
-│  └─ cli/                     # Node CLI（core と renderer を利用）
+│  ├─ render/                  # SVG 合成エンジン（React 非依存、ブラウザ / Node 共通）
+│  ├─ cli/                     # Node CLI（core と renderer を利用）
+│  └─ mcp/                     # MCP サーバー（stdio）。npm: fresnel-mcp
 ├─ docs/
 │  ├─ DESIGN.md                # 本書
 │  ├─ HIG.md                   # fresnel Human Interface Guidelines
@@ -409,3 +412,51 @@ fresnel/
 | Apple の商標 | 法的リスク | 「Icon Composer」「Liquid Glass」は説明文でのみ使い、名称やアイコンには使わない。SF Symbols と Apple のアイコンは同梱しない |
 | SVG 経由の XSS | セキュリティ | DOMPurify ＋ resvg でラスタライズしてから描画（DOM に挿入しない） |
 | 手元に Mac が無い開発環境 | actool 検証ができない | GitHub Actions の macOS ランナーで actool 検証ジョブを回す |
+
+---
+
+## 16. MCP サーバー（v0.2 追加）
+
+AI エージェント（Claude Desktop / Claude Code など）から、`.icon` の作成・編集・プレビュー・書き出しをできるようにする。
+
+### 16.1 構成
+
+| 項目 | 内容 |
+|---|---|
+| パッケージ | `packages/mcp`（npm: `fresnel-mcp`、bin: `fresnel-mcp`） |
+| トランスポート | stdio |
+| 依存 | `@modelcontextprotocol/sdk`、`@fresnel/core`、`@fresnel/render`、`@resvg/resvg-js` |
+| 対象 | ローカルの `.icon` ディレクトリ（GUI と同じファイル形式なので、エージェントが作ったものを GUI で開いて仕上げられる） |
+| 安全性 | 読み書きは許可ルート配下だけ（起動引数 `--root <dir>`、複数指定可。省略時はカレントディレクトリ）。外部通信なし。取り込む SVG はサニタイズする |
+
+設定例（Claude Desktop / Claude Code）
+
+```json
+{ "mcpServers": { "fresnel": { "command": "npx", "args": ["-y", "fresnel-mcp", "--root", "/path/to/icons"] } } }
+```
+
+### 16.2 ツール
+
+| ツール | 入力 | 出力 |
+|---|---|---|
+| `icon_create` | path, background?（色 / グラデーション / system）, platforms? | 作成した .icon のサマリ |
+| `icon_inspect` | path | グループ / レイヤー / 属性 / 外観別上書きのツリー（JSON） |
+| `icon_add_layer` | path, source（ファイルパス or SVG 文字列）, group?（名前、無ければ作る）, name?, fill?, opacity?, scale?, offset?, glass? | 追加後のサマリ |
+| `icon_set` | path, target（`document` / グループ名 / `グループ名/レイヤー名`）, props（kebab-case のキーと値）, appearance?（`dark` / `tinted`。指定時は上書き） | 変更後の対象 |
+| `icon_remove` | path, target | 削除後のサマリ |
+| `icon_move` | path, target, index, toGroup? | 並べ替え後のサマリ |
+| `icon_validate` | path | 検証結果（V-01〜V-08） |
+| `icon_render` | path, appearance?, size?, mask?, out? | **PNG を画像コンテンツで返す**（エージェントが見た目を確認できる）。out を指定すれば保存もする |
+| `icon_render_sheet` | path, size?, out? | 6 外観を並べたコンタクトシート PNG |
+| `icon_export` | path, outDir, formats（`icon` / `icns` / `appiconset` / `png`）, sizes? | 書き出したファイルの一覧 |
+
+### 16.3 リソース / プロンプト
+
+- リソース `fresnel://guide/icon-design`：HIG Part B（アイコン制作ガイド）の本文。エージェントが Apple の推奨を参照できる
+- リソース `fresnel://schema/icon-json`：fresnel が扱う icon.json キーの一覧と既定値
+- プロンプト `design_app_icon`：アプリの説明からレイヤー SVG を設計 → 追加 → 6 外観を確認 → 書き出し、という手順のテンプレート
+
+### 16.4 GUI 連携
+
+- v0.2：GUI は開いているファイルの外部変更を検知して再読み込みする（MCP で編集した結果が GUI にそのまま反映される）
+- 将来：GUI 側に MCP の HTTP トランスポートを持たせ、編集中のドキュメントを直接操作する
