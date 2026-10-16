@@ -71,11 +71,13 @@ export function ExportSheet() {
       const raster = browserRasterizer(doc, { tint, mask });
       const files: FileMap = {};
       const put = (prefix: string, m: FileMap) => Object.entries(m).forEach(([k, v]) => (files[`${prefix}${k}`] = v));
-      if (formats.icon) put(`${name}.icon/`, writeBundle(doc, extra));
+      const wantCar = formats.car && actool && !!plat.compileCar;
+      if (formats.icon || wantCar) put(`${name}.icon/`, writeBundle(doc, extra));
       if (formats.icns) files[`${name}.icns`] = await buildIcns(raster);
       if (formats.appiconset) put('AppIcon.appiconset/', await buildAppIconSet(raster));
       if (formats.png) put(`${name}-png/`, await buildPngSet(raster, pngScope === 'all' ? [...APPEARANCES] : (['default'] as Appearance[]), PNG_SIZES));
       const where = await plat.writeExport(files, name);
+      if (where && wantCar) await plat.compileCar!(`${where}/${name}.icon`, where);
       if (where) {
         useUI.getState().toast('success', `${t('exported')}: ${where}`);
         set({ exportOpen: false });
@@ -169,7 +171,7 @@ export function ExportSheet() {
           </div>
 
           <h3 className="mt-5 mb-2 text-[11px] font-semibold tracking-[0.6px] text-t3">{t('saveTo')}</h3>
-          <p className="m-0 font-mono text-xs text-t2">{plat.kind === 'web' ? `${name}-export.zip — ${t('downloadZip')}` : '…'}</p>
+          <p className="m-0 font-mono text-xs text-t2">{plat.kind === 'web' ? `${name}-export.zip — ${t('downloadZip')}` : t('chooseFolder')}</p>
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-sep px-7 py-3">
           <Button onClick={() => set({ exportOpen: false })}>{t('cancel')}</Button>

@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, unit tests, E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r run typecheck
+      - run: pnpm test
+      - name: Build CLI and MCP server
+        run: pnpm --filter fresnel-mcp --filter fresnel-icon run build
+      - name: Smoke-test the CLI bundle
+        run: |
+          node packages/cli/dist/cli.js validate fixtures/Sample.icon
+          node packages/cli/dist/cli.js render fixtures/Sample.icon --sheet -s 160 -o sheet.png
+      - name: Build web app
+        run: pnpm --filter @fresnel/web build
+      - name: Install Playwright Chromium
+        run: pnpm --filter @fresnel/web exec playwright install --with-deps chromium
+      - name: E2E
+        run: pnpm --filter @fresnel/web exec playwright test
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/test-results
+
+  desktop:
+    name: Desktop shell (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - name: Placeholder frontend for tauri::generate_context!
+        run: mkdir -p apps/desktop/dist && echo '<!doctype html>' > apps/desktop/dist/index.html
+      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+  actool:
+    name: Validate with Apple actool (macOS)
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select Xcode 26 or later if present
+        run: |
+          XC=$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1 || true)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC"; fi
+          xcodebuild -version
+      - name: Compile fixtures/Sample.icon
+        run: |
+          mkdir -p out
+          xcrun actool fixtures/Sample.icon --compile out --app-icon Sample --include-all-app-icons \
+            --platform macosx --minimum-deployment-target 26.0 \
+            --output-partial-info-plist out/partial.plist --errors --warnings --output-format human-readable-text
+          test -f out/Assets.car

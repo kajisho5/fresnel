@@ -176,3 +176,8 @@ input[type='range'].fr-slider::-moz-range-thumb {
 .fr-sheet {
   animation: fr-sheet-in 240ms cubic-bezier(0.2, 0, 0, 1);
 }
+
+/* macOS desktop: leave room for the window buttons drawn over the toolbar */
+.mac-titlebar header[data-tauri-drag-region] {
+  padding-left: 84px;
+}

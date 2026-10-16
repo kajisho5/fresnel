@@ -29,6 +29,8 @@ export interface Platform {
   writeExport(files: FileMap, suggestedName: string): Promise<string | null>;
   /** Assets.car via Apple's actool (macOS desktop only) */
   actoolAvailable(): Promise<boolean>;
+  /** Compiles <bundlePath> into <outDir>/Assets.car. Only where actoolAvailable() is true. */
+  compileCar?(bundlePath: string, outDir: string): Promise<string>;
   /** Watches the opened bundle for external changes (e.g. edits made through MCP). */
   watch?(location: string, onChange: () => void): () => void;
   reload?(location: string): Promise<Opened>;
