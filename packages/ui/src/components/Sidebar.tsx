@@ -1,0 +1,349 @@
+import { useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { ChevronDown, ChevronRight, Eye, EyeOff, Folder, FolderPlus, Minus, Plus } from 'lucide-react';
+import {
+  baseValue,
+  colorToCss,
+  mimeOf,
+  nameOf,
+  resolveProp,
+  type Asset,
+  type Fill,
+  type GroupNode,
+  type IconDocument,
+  type LayerNode,
+} from '@fresnel/core';
+import { useDoc } from '../store/doc';
+import { useUI, type Selection } from '../store/ui';
+import { t, useLang } from '../i18n';
+import { importLayers } from '../actions';
+import { IconButton, cx } from './controls';
+
+const urlCache = new WeakMap<Uint8Array, string>();
+function assetUrl(a: Asset): string {
+  let u = urlCache.get(a.bytes);
+  if (!u) {
+    u = URL.createObjectURL(new Blob([a.bytes as unknown as ArrayBuffer], { type: mimeOf(a) }));
+    urlCache.set(a.bytes, u);
+  }
+  return u;
+}
+
+export function fillToCss(fill: unknown, dark = false): string {
+  if (fill === 'none' || fill === null || fill === undefined) return 'transparent';
+  if (fill === 'system-dark' || (fill === 'automatic' && dark)) return 'linear-gradient(#3c3c40,#1c1c1e)';
+  if (typeof fill === 'string') return 'linear-gradient(#ffffff,#e3e3e8)';
+  const f = fill as Record<string, unknown>;
+  if (typeof f.solid === 'string') return colorToCss(f.solid);
+  if (typeof f['automatic-gradient'] === 'string') return colorToCss(f['automatic-gradient'] as string);
+  if (Array.isArray(f['linear-gradient'])) {
+    const [a, b] = f['linear-gradient'] as string[];
+    return `linear-gradient(${colorToCss(a!)}, ${colorToCss(b!)})`;
+  }
+  return 'transparent';
+}
+
+function Thumb({ children, className }: { children?: React.ReactNode; className?: string }) {
+  return <div className={cx('checker flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-md border border-hairline bg-[#0f0f10]', className)}>{children}</div>;
+}
+
+type DragData = { kind: 'group' | 'layer'; id: string };
+const DND = 'application/x-fresnel-node';
+
+export function Sidebar() {
+  useLang();
+  const doc = useDoc((s) => s.doc);
+  const { selection, select, appearance } = useUI();
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const actions = useDoc.getState();
+
+  const flat = useMemo(() => flatten(doc, collapsed), [doc, collapsed]);
+  const isSel = (s: Selection) => selection.kind === s.kind && (s.kind === 'document' || ('id' in selection && selection.id === (s as { id: string }).id));
+  const layerCount = doc.groups.reduce((a, g) => a + g.layers.length, 0);
+  const bgFill = resolveProp<Fill>(doc.props.fill, { appearance }, 'automatic');
+
+  const onDragStart = (e: DragEvent, d: DragData) => {
+    e.dataTransfer.setData(DND, JSON.stringify(d));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const onDrop = (e: DragEvent, target: { kind: 'group'; g: GroupNode; gi: number } | { kind: 'layer'; g: GroupNode; l: LayerNode; li: number }) => {
+    const raw = e.dataTransfer.getData(DND);
+    setDropTarget(null);
+    if (!raw) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const d = JSON.parse(raw) as DragData;
+    if (d.kind === 'group') {
+      const gi = target.kind === 'group' ? target.gi : doc.groups.indexOf(target.g);
+      actions.move({ kind: 'group', id: d.id }, gi);
+    } else {
+      const idx = target.kind === 'layer' ? target.li : 0;
+      actions.move({ kind: 'layer', id: d.id }, idx, target.g.id);
+    }
+  };
+
+  const toggleHidden = (ref: Selection) => {
+    if (ref.kind === 'document') return;
+    const node = ref.kind === 'group' ? doc.groups.find((g) => g.id === ref.id) : doc.groups.flatMap((g) => g.layers).find((l) => l.id === ref.id);
+    if (!node) return;
+    const hidden = resolveProp<boolean>(node.props.hidden, { appearance }, false);
+    actions.setProp(ref, 'hidden', !hidden);
+  };
+
+  const onKey = (e: KeyboardEvent) => {
+    const i = flat.findIndex((r) => isSel(r.sel));
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const n = flat[Math.max(0, Math.min(flat.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+      if (n) select(n.sel);
+    } else if ((e.key === 'Backspace' || e.key === 'Delete') && selection.kind !== 'document') {
+      e.preventDefault();
+      removeSelected();
+    } else if (e.key === ' ' && selection.kind !== 'document') {
+      e.preventDefault();
+      toggleHidden(selection);
+    } else if (e.key === 'Enter' && selection.kind !== 'document') {
+      e.preventDefault();
+      setRenaming(selection.id);
+    } else if (e.key === 'ArrowLeft' && selection.kind === 'group') {
+      setCollapsed(new Set([...collapsed, selection.id]));
+    } else if (e.key === 'ArrowRight' && selection.kind === 'group') {
+      const c = new Set(collapsed);
+      c.delete(selection.id);
+      setCollapsed(c);
+    }
+  };
+
+  const removeSelected = () => {
+    if (selection.kind === 'document') return;
+    const label = flat.find((r) => isSel(r.sel))?.name ?? '';
+    if (!window.confirm(t('deleteConfirm', { name: label }))) return;
+    actions.remove(selection);
+    select({ kind: 'document' });
+  };
+
+  return (
+    <aside className="flex w-[260px] shrink-0 flex-col border-r border-sep bg-sidebar" aria-label={t('layers')}>
+      <div className="px-4 pt-[18px] pb-2 text-[11px] font-semibold tracking-[0.6px] text-t3">{t('layers')}</div>
+      <div role="tree" aria-label={t('layers')} tabIndex={0} onKeyDown={onKey} className="flex-1 overflow-y-auto px-2 pb-2 outline-none">
+        <Row
+          selected={isSel({ kind: 'document' })}
+          onClick={() => select({ kind: 'document' })}
+          thumb={
+            <Thumb>
+              <div className="h-[22px] w-[22px] rounded" style={{ background: fillToCss(bgFill, appearance.includes('dark')) }} />
+            </Thumb>
+          }
+          name={t('background')}
+          badge={t('fill')}
+          level={1}
+        />
+        <div className="mx-2 my-1 h-px bg-sep" />
+        {doc.groups.length === 0 && <p className="px-3 py-6 text-center text-xs leading-5 text-t3">{t('dropHere')}</p>}
+        {flat
+          .filter((r) => r.sel.kind !== 'document')
+          .map((r) => {
+            const sel = r.sel as { kind: 'group' | 'layer'; id: string };
+            const target = r.kind === 'group' ? ({ kind: 'group', g: r.group, gi: r.gi } as const) : ({ kind: 'layer', g: r.group, l: r.layer!, li: r.li! } as const);
+            return (
+              <Row
+                key={sel.id}
+                level={r.kind === 'group' ? 1 : 2}
+                selected={isSel(r.sel)}
+                dropping={dropTarget === sel.id}
+                onClick={() => select(r.sel)}
+                draggable
+                onDragStart={(e) => onDragStart(e, sel)}
+                onDragOver={(e) => {
+                  if (!e.dataTransfer.types.includes(DND)) return;
+                  e.preventDefault();
+                  setDropTarget(sel.id);
+                }}
+                onDragLeave={() => setDropTarget((d) => (d === sel.id ? null : d))}
+                onDrop={(e) => onDrop(e, target)}
+                expander={
+                  r.kind === 'group' ? (
+                    <button
+                      type="button"
+                      aria-label={collapsed.has(sel.id) ? 'Expand' : 'Collapse'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const c = new Set(collapsed);
+                        if (c.has(sel.id)) c.delete(sel.id);
+                        else c.add(sel.id);
+                        setCollapsed(c);
+                      }}
+                      className="flex h-4 w-4 items-center justify-center text-t2"
+                    >
+                      {collapsed.has(sel.id) ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    </button>
+                  ) : undefined
+                }
+                thumb={
+                  r.kind === 'group' ? (
+                    <Thumb className="!bg-transparent">
+                      <Folder className="h-4 w-4 text-t2" strokeWidth={1.5} />
+                    </Thumb>
+                  ) : (
+                    <Thumb>{r.asset && <img alt="" src={assetUrl(r.asset)} className="h-full w-full object-contain" draggable={false} />}</Thumb>
+                  )
+                }
+                name={r.name}
+                renaming={renaming === sel.id}
+                onRename={(v) => {
+                  setRenaming(null);
+                  if (v && v !== r.name) actions.rename(r.sel as never, v);
+                }}
+                badge={r.glass ? t('glass') : undefined}
+                hidden={r.hidden}
+                onToggleHidden={() => toggleHidden(r.sel)}
+              />
+            );
+          })}
+      </div>
+      <div className="flex h-10 shrink-0 items-center gap-0.5 border-t border-sep px-2">
+        <IconButton label={t('addLayer')} onClick={importLayers}>
+          <Plus className="h-4 w-4" />
+        </IconButton>
+        <IconButton label={t('remove')} onClick={removeSelected} disabled={selection.kind === 'document'}>
+          <Minus className="h-4 w-4" />
+        </IconButton>
+        <IconButton
+          label={selection.kind === 'layer' ? t('groupSelection') : t('addGroup')}
+          onClick={() => {
+            if (selection.kind === 'layer') select({ kind: 'group', id: actions.groupLayer(selection.id) });
+            else select({ kind: 'group', id: actions.addGroup() });
+          }}
+        >
+          <FolderPlus className="h-4 w-4" strokeWidth={1.5} />
+        </IconButton>
+        <span className="ml-auto pr-2 text-[11px] text-t3">{t('layersCount', { g: doc.groups.length, l: layerCount })}</span>
+      </div>
+    </aside>
+  );
+}
+
+interface FlatRow {
+  kind: 'group' | 'layer';
+  sel: Selection;
+  name: string;
+  group: GroupNode;
+  gi: number;
+  layer?: LayerNode;
+  li?: number;
+  asset?: Asset;
+  glass: boolean;
+  hidden: boolean;
+}
+
+function flatten(doc: IconDocument, collapsed: Set<string>): FlatRow[] {
+  const rows: FlatRow[] = [];
+  doc.groups.forEach((g, gi) => {
+    const glass = g.layers.some((l) => baseValue(l.props.glass) === true) || (baseValue(g.props.translucency) as { enabled?: boolean } | undefined)?.enabled === true;
+    rows.push({ kind: 'group', sel: { kind: 'group', id: g.id }, name: nameOf(g) || `Group ${gi + 1}`, group: g, gi, glass, hidden: baseValue(g.props.hidden) === true });
+    if (collapsed.has(g.id)) return;
+    g.layers.forEach((l, li) => {
+      const img = baseValue(l.props['image-name']);
+      rows.push({
+        kind: 'layer',
+        sel: { kind: 'layer', id: l.id },
+        name: nameOf(l) || `Layer ${li + 1}`,
+        group: g,
+        gi,
+        layer: l,
+        li,
+        ...(typeof img === 'string' && doc.assets[img] ? { asset: doc.assets[img] } : {}),
+        glass: false,
+        hidden: baseValue(l.props.hidden) === true,
+      });
+    });
+  });
+  return rows;
+}
+
+function Row({
+  level,
+  selected,
+  dropping,
+  thumb,
+  name,
+  badge,
+  hidden,
+  expander,
+  onClick,
+  onToggleHidden,
+  renaming,
+  onRename,
+  ...drag
+}: {
+  level: 1 | 2;
+  selected: boolean;
+  dropping?: boolean;
+  thumb: React.ReactNode;
+  name: string;
+  badge?: string | undefined;
+  hidden?: boolean;
+  expander?: React.ReactNode;
+  onClick: () => void;
+  onToggleHidden?: () => void;
+  renaming?: boolean;
+  onRename?: (v: string) => void;
+  draggable?: boolean;
+  onDragStart?: (e: DragEvent) => void;
+  onDragOver?: (e: DragEvent) => void;
+  onDragLeave?: () => void;
+  onDrop?: (e: DragEvent) => void;
+}) {
+  return (
+    <div
+      role="treeitem"
+      aria-selected={selected}
+      aria-level={level}
+      onClick={onClick}
+      {...drag}
+      className={cx(
+        'group relative flex h-8 items-center gap-1.5 rounded-md pr-2 transition-colors duration-75',
+        level === 1 ? 'pl-2' : 'pl-[34px]',
+        selected ? 'bg-selected' : 'hover:bg-hover',
+        dropping && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded before:bg-accent',
+      )}
+    >
+      <div className="flex w-4 justify-center">{expander}</div>
+      {thumb}
+      {renaming ? (
+        <input
+          autoFocus
+          defaultValue={name}
+          aria-label="Name"
+          onClick={(e) => e.stopPropagation()}
+          onBlur={(e) => onRename?.(e.target.value.trim())}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            if (e.key === 'Escape') onRename?.(name);
+          }}
+          className="ml-1 h-5 min-w-0 flex-1 rounded bg-control px-1 text-xs outline-none"
+        />
+      ) : (
+        <span className={cx('ml-1 min-w-0 flex-1 truncate text-xs', level === 1 && 'font-semibold', hidden ? 'text-t3' : 'text-t1')}>{name}</span>
+      )}
+      {badge && (
+        <span className={cx('rounded px-1.5 py-px text-[10px] font-semibold', badge === t('glass') ? 'bg-accent/20 text-accent' : 'bg-hover text-t2')}>{badge}</span>
+      )}
+      {onToggleHidden && (
+        <button
+          type="button"
+          aria-label={hidden ? 'Show' : 'Hide'}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleHidden();
+          }}
+          className={cx('flex h-5 w-5 items-center justify-center text-t2', hidden ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus:opacity-100')}
+        >
+          {hidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        </button>
+      )}
+    </div>
+  );
+}

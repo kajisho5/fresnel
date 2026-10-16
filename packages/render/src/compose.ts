@@ -48,11 +48,20 @@ export interface RenderOptions {
 const C = CANVAS;
 const H = C / 2;
 
+const b64Cache = new WeakMap<Uint8Array, string>();
 const b64 = (bytes: Uint8Array): string => {
-  if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
-  let s = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(s);
+  const hit = b64Cache.get(bytes);
+  if (hit) return hit;
+  let out: string;
+  const NodeBuffer = (globalThis as { Buffer?: { from(b: Uint8Array): { toString(enc: 'base64'): string } } }).Buffer;
+  if (NodeBuffer) out = NodeBuffer.from(bytes).toString('base64');
+  else {
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    out = btoa(s);
+  }
+  b64Cache.set(bytes, out);
+  return out;
 };
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');

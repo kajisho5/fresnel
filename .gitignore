@@ -9,3 +9,5 @@ apps/desktop/src-tauri/gen/
 playwright-report/
 test-results/
 .tmp/
+apps/web/test-results/
+apps/web/playwright-report/

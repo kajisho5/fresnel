@@ -1,0 +1,122 @@
+import { makeAsset, type Asset } from '@fresnel/core';
+import { bundleFromFiles, webPlatform, type Platform } from './platform';
+import { useDoc } from './store/doc';
+import { useUI } from './store/ui';
+import { loadSample } from './sample';
+import { t } from './i18n';
+
+let platform: Platform = webPlatform;
+export const setPlatform = (p: Platform) => {
+  platform = p;
+};
+export const getPlatform = () => platform;
+
+const fail = (e: unknown) => useUI.getState().toast('error', (e as Error).message || String(e));
+
+function confirmDiscard(): boolean {
+  return !useDoc.getState().dirty || window.confirm(t('unsavedConfirm'));
+}
+
+export async function openIcon() {
+  if (!confirmDiscard()) return;
+  try {
+    const r = await platform.open();
+    if (!r) return;
+    useDoc.getState().load(r.doc, { name: r.name, location: r.location, extra: r.extra });
+    useUI.getState().select({ kind: 'document' });
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export function openSample() {
+  if (!confirmDiscard()) return;
+  useDoc.getState().load(loadSample(), { name: 'Sample' });
+  useUI.getState().select({ kind: 'document' });
+}
+
+export function newIcon() {
+  if (!confirmDiscard()) return;
+  useDoc.getState().newDocument();
+  useUI.getState().select({ kind: 'document' });
+}
+
+export async function save(as = false) {
+  const s = useDoc.getState();
+  try {
+    const r = as || !platform.canSaveInPlace(s.location) ? await platform.saveAs(s.doc, s.extra, s.name) : await platform.save(s.doc, s.extra, s.name, s.location);
+    if (!r) return;
+    useDoc.getState().markSaved(r.location, r.name);
+    useUI.getState().toast('success', t('saved'));
+  } catch (e) {
+    fail(e);
+  }
+}
+
+/** Target group for new layers: the selected group / the selected layer's group / the frontmost group. */
+function targetGroup(): string | null {
+  const sel = useUI.getState().selection;
+  const doc = useDoc.getState().doc;
+  if (sel.kind === 'group') return sel.id;
+  if (sel.kind === 'layer') return doc.groups.find((g) => g.layers.some((l) => l.id === sel.id))?.id ?? null;
+  return doc.groups[0]?.id ?? null;
+}
+
+export function addAssets(assets: Asset[]) {
+  const ok = assets.filter((a) => a.kind === 'svg' || a.kind === 'png' || a.kind === 'jpg');
+  if (ok.length < assets.length) useUI.getState().toast('error', t('invalidFile'));
+  if (!ok.length) return;
+  const ids = useDoc.getState().addLayers(targetGroup(), ok);
+  if (ids[0]) useUI.getState().select({ kind: 'layer', id: ids.at(-1)! });
+}
+
+export async function importLayers() {
+  try {
+    const files = await platform.pickImages();
+    addAssets(files.map((f) => makeAsset(f.name, f.bytes)));
+  } catch (e) {
+    fail(e);
+  }
+}
+
+/** Handles files dropped anywhere: an .icon bundle (folder or zip) opens, images become layers. */
+export async function handleDrop(dt: DataTransfer) {
+  try {
+    const files = await collectDropped(dt);
+    if (!files.length) return;
+    const isBundle = files.some((f) => /\.zip$/i.test(f.name) || ((f as File & { webkitRelativePath?: string }).webkitRelativePath ?? f.name).endsWith('icon.json'));
+    if (isBundle) {
+      if (!confirmDiscard()) return;
+      const r = await bundleFromFiles(files);
+      if (!r) throw new Error(t('invalidFile'));
+      useDoc.getState().load(r.doc, { name: r.name, location: r.location, extra: r.extra });
+      return;
+    }
+    addAssets(await Promise.all(files.map(async (f) => makeAsset(f.name, new Uint8Array(await f.arrayBuffer())))));
+  } catch (e) {
+    fail(e);
+  }
+}
+
+/** Expands dropped folders (via webkitGetAsEntry) into files with webkitRelativePath set. */
+async function collectDropped(dt: DataTransfer): Promise<File[]> {
+  const entries = [...dt.items].map((i) => i.webkitGetAsEntry?.()).filter(Boolean) as FileSystemEntry[];
+  if (!entries.length) return [...dt.files];
+  const out: File[] = [];
+  const walk = async (entry: FileSystemEntry, path: string): Promise<void> => {
+    if (entry.isFile) {
+      const f = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
+      Object.defineProperty(f, 'webkitRelativePath', { value: path + f.name });
+      out.push(f);
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      for (;;) {
+        const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        for (const e of batch) await walk(e, `${path}${entry.name}/`);
+      }
+    }
+  };
+  for (const e of entries) await walk(e, '');
+  return out;
+}
