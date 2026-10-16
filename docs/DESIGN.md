@@ -118,7 +118,7 @@
 | SVG 処理 | DOMPurify（サニタイズ）＋ resvg-wasm（ラスタライズ） | ブラウザ間の差をなくし、書き出しの結果を決定的にする |
 | 書き出し | TS 実装（`.icns` エンコーダを自作、zip は fflate）を全環境で共有。Tauri の Rust 側はファイル I/O とダイアログだけを担当 | ロジックを 1 か所にまとめる |
 | MCP | `@modelcontextprotocol/sdk`（stdio トランスポート） | 公式 SDK |
-| UI 部品 | Radix UI Primitives（ヘッドレス） | アクセシビリティ（a11y）を担保しつつ、見た目は自前のトークンで作る |
+| UI 部品 | ネイティブ要素（input range / checkbox / select）＋ ARIA。v0.2 で Radix から変更 | 依存を減らし、OS 標準のアクセシビリティをそのまま使う |
 | アイコン | Lucide（ISC ライセンス） | SF Symbols は再配布できないため使わない |
 | テスト | Vitest（ユニット）、Playwright（E2E・スクショ差分）、cargo test | |
 | CI / CD | GitHub Actions：lint / test / ビルド（mac / win / linux）、Pages に Web 版をデプロイ | Mac 署名と公証は `kajisho5/runway` の共通ワークフローに乗せる |
@@ -272,7 +272,9 @@ interface Asset { name: string; kind: 'svg' | 'png' | 'jpg'; bytes: Uint8Array; 
 | V-05 | Warning | 背景画像が full-bleed / 不透明でない |
 | V-06 | Info | 極細線の疑い（16px 描画時にエッジの寄与が 1px 未満） |
 | V-07 | Info | テキストを含む SVG（`<text>`）。アウトライン化を推奨 |
-| V-08 | Info | Dark / Tinted が未設定（システムの自動生成になる） |
+| V-08 | Warning | Dark / Tinted が未設定（システムの自動生成になる） |
+| V-09 | Warning | グループが 4 つを超える |
+| V-10 | Error | プレビューできない画像形式（PDF など） |
 
 V-03 から V-07 は Apple HIG の推奨事項をルール化したもの。
 
@@ -460,3 +462,18 @@ AI エージェント（Claude Desktop / Claude Code など）から、`.icon` �
 
 - v0.2：GUI は開いているファイルの外部変更を検知して再読み込みする（MCP で編集した結果が GUI にそのまま反映される）
 - 将来：GUI 側に MCP の HTTP トランスポートを持たせ、編集中のドキュメントを直接操作する
+
+---
+
+## 17. 実装状況（v0.1 時点）
+
+| 範囲 | 状態 |
+|---|---|
+| `@fresnel/core` | 実装済み。実際の Icon Composer 出力 3 ファイルでバイト単位の往復を確認 |
+| `@fresnel/render` | 実装済み（SVG 合成方式）。ブラウザと resvg の結果が一致 |
+| `fresnel-mcp` | 実装済み。ツール 11 個、リソース 2 個、プロンプト 1 個。stdio 経由の E2E テストあり |
+| `fresnel-icon`（CLI） | 実装済み |
+| Web アプリ | 実装済み（Playwright E2E 8 本） |
+| デスクトップ（Tauri v2） | 実装済み。Linux の .deb ビルドと起動を確認済み。macOS と Windows は CI（release.yml）でビルドする |
+| Assets.car | macOS ＋ Xcode 26 以降で actool を呼ぶ。CI の macOS ジョブで検証する（ローカルでは未検証） |
+| 未対応 | WebGL2 の屈折パス（v0.3）、visionOS / tvOS、自動保存（IndexedDB） |
