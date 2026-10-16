@@ -1,0 +1,19 @@
+{
+  "background": "gradient:#3D7BFF,#0E2A8A",
+  "darkBackground": "gradient:#1A2140,#070A14",
+  "groups": [
+    {
+      "name": "Waves",
+      "props": { "translucency": { "enabled": true, "value": 0.45 }, "blur-material": 0.3 },
+      "layers": [
+        { "file": "src/wave-front.svg", "name": "Wave Front", "props": { "opacity": 0.85, "glass": true } },
+        { "file": "src/wave-back.svg", "name": "Wave Back", "props": { "opacity": 0.55, "glass": true } }
+      ]
+    },
+    {
+      "name": "Sun",
+      "props": { "translucency": { "enabled": false, "value": 0.5 } },
+      "layers": [{ "file": "src/sun.svg", "name": "Sun", "props": { "glass": true } }]
+    }
+  ]
+}

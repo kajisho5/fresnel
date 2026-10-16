@@ -1,0 +1,49 @@
+{
+  "name": "fresnel-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for fresnel: let AI agents create, edit, preview and export Liquid Glass app icons (.icon bundles)",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "fresnel-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "icon",
+    "app-icon",
+    "liquid-glass",
+    "icon-composer",
+    "ios",
+    "macos"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kajisho5/fresnel.git",
+    "directory": "packages/mcp"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@resvg/resvg-js": "2.6.2",
+    "fflate": "0.8.3",
+    "zod": "4.3.3"
+  },
+  "devDependencies": {
+    "@fresnel/core": "workspace:*",
+    "@fresnel/render": "workspace:*",
+    "tsup": "9.0.0",
+    "tsx": "4.23.15"
+  }
+}
