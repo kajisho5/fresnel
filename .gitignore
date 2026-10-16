@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+.DS_Store
+coverage/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+playwright-report/
+test-results/
+.tmp/

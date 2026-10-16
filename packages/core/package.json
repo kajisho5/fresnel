@@ -1,0 +1,19 @@
+{
+  "name": "@fresnel/core",
+  "version": "0.1.0",
+  "description": "fresnel core: .icon (icon.json) model, parser/serializer, validation and export",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "fflate": "0.8.3",
+    "zod": "4.3.3"
+  }
+}

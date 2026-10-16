@@ -1,0 +1,75 @@
+{
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "wave-front.svg",
+          "name" : "Wave Front",
+          "opacity" : 0.85,
+          "glass" : true
+        },
+        {
+          "image-name" : "wave-back.svg",
+          "name" : "Wave Back",
+          "opacity" : 0.55,
+          "glass" : true
+        }
+      ],
+      "name" : "Waves",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.45
+      },
+      "blur-material" : 0.3
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "sun.svg",
+          "name" : "Sun",
+          "glass" : true
+        }
+      ],
+      "name" : "Sun",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  },
+  "fill-specializations" : [
+    {
+      "value" : {
+        "linear-gradient" : [
+          "srgb:0.23922,0.48235,1.00000,1.00000",
+          "srgb:0.05490,0.16471,0.54118,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance" : "dark",
+      "value" : {
+        "linear-gradient" : [
+          "srgb:0.10196,0.12941,0.25098,1.00000",
+          "srgb:0.02745,0.03922,0.07843,1.00000"
+        ]
+      }
+    }
+  ]
+}

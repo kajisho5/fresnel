@@ -1,0 +1,27 @@
+{
+  "name": "fresnel",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Open-source Liquid Glass icon composer",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @fresnel/web dev",
+    "build": "pnpm -r --filter ./packages/** --filter ./apps/web run build",
+    "test": "vitest run",
+    "typecheck": "pnpm -r run typecheck",
+    "fixtures": "node packages/cli/dist/cli.js build fixtures/sample.spec.json -o fixtures/Sample.icon"
+  },
+  "devDependencies": {
+    "@fresnel/core": "workspace:*",
+    "@fresnel/render": "workspace:*",
+    "@types/node": "^24.0.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}

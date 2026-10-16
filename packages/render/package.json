@@ -1,0 +1,21 @@
+{
+  "name": "@fresnel/render",
+  "version": "0.1.0",
+  "description": "fresnel SVG compositor: approximate Liquid Glass preview for .icon documents (browser + Node)",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@fresnel/core": "workspace:*"
+  },
+  "optionalDependencies": {
+    "@resvg/resvg-js": "2.6.2"
+  }
+}
