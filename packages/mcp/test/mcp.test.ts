@@ -128,4 +128,20 @@ describe('fresnel-mcp over stdio', () => {
     r = await call('icon_render', { path: 'Star', out: '/tmp/x.png' });
     expect(r.content[0]!.text).toMatch(/Access denied/);
   });
+  it('refuses bogus groups, zip creation and symlinked Assets', async () => {
+    await call('icon_create', { path: 'Guard.icon' });
+    let r = await call('icon_add_layer', { path: 'Guard', group: 'G/x', svg: STAR });
+    expect(r.isError).toBe(true);
+    r = await call('icon_create', { path: 'Z.icon.zip' });
+    expect(r.isError).toBe(true);
+    const { mkdir, symlink, writeFile, rm: rmrf } = await import('node:fs/promises');
+    const outside = join(dir, 'outside');
+    await mkdir(outside, { recursive: true });
+    await writeFile(join(outside, 'precious.txt'), 'keep');
+    await rmrf(join(dir, 'Guard.icon', 'Assets'), { recursive: true, force: true });
+    await symlink(outside, join(dir, 'Guard.icon', 'Assets'));
+    r = await call('icon_add_layer', { path: 'Guard', group: 'Shape', svg: STAR });
+    expect(r.isError).toBe(true);
+    expect((await readdir(outside)).sort()).toEqual(['precious.txt']);
+  });
 });

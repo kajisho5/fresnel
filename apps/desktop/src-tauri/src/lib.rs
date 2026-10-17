@@ -3,21 +3,58 @@
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 
 #[derive(Default)]
 struct AppState {
     watchers: Mutex<HashMap<String, RecommendedWatcher>>,
-    /// Paths fresnel itself wrote recently; their change events are ignored.
-    own_writes: Mutex<HashMap<String, Instant>>,
+    /// Fingerprint of each watched bundle as fresnel last wrote or reported it.
+    /// A change event whose bundle still has this fingerprint is fresnel's own write
+    /// (or a no-op touch) and is ignored, however late the event arrives.
+    fingerprints: Mutex<HashMap<String, u64>>,
 }
 
-const OWN_WRITE_GRACE: Duration = Duration::from_millis(1500);
+/// Hash of every file (path + bytes) in a bundle, ignoring .DS_Store and temp files.
+fn fingerprint(root: &Path) -> Option<u64> {
+    let mut files = HashMap::new();
+    walk(root, root, &mut files).ok()?;
+    let mut keys: Vec<_> = files.keys().filter(|k| !k.ends_with(".fresnel-tmp")).cloned().collect();
+    keys.sort();
+    let mut h = DefaultHasher::new();
+    for k in keys {
+        k.hash(&mut h);
+        files[&k].hash(&mut h);
+    }
+    Some(h.finish())
+}
+
+/// Refuses paths that pass through a symbolic link below `root` (or a symlinked `root`),
+/// so a crafted bundle can't make fresnel write or delete files elsewhere.
+fn assert_no_symlink(root: &Path, target: &Path) -> Result<(), String> {
+    if fs::symlink_metadata(root).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+        return Err(format!("Refusing to write through a symbolic link: {}", root.display()));
+    }
+    let rel = target.strip_prefix(root).map_err(|_| format!("Refusing to write outside {}", root.display()))?;
+    let mut cur = root.to_path_buf();
+    for c in rel.components() {
+        cur.push(c);
+        match fs::symlink_metadata(&cur) {
+            Ok(m) if m.file_type().is_symlink() => {
+                return Err(format!("Refusing to follow a symbolic link: {}", cur.display()));
+            }
+            Ok(_) => {}
+            Err(_) => break, // doesn't exist yet
+        }
+    }
+    Ok(())
+}
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
@@ -63,20 +100,39 @@ fn read_bundle(path: String) -> Result<HashMap<String, String>, String> {
     Ok(out)
 }
 
+/// Shows the native image picker and returns the chosen files (name, base64).
+/// Reading happens here, so the webview can't ask for arbitrary paths.
 #[tauri::command]
-fn read_file(path: String) -> Result<String, String> {
-    fs::read(&path).map(|b| B64.encode(b)).map_err(err)
+async fn pick_images(app: AppHandle) -> Result<Vec<(String, String)>, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Add layers")
+        .add_filter("Images", &["svg", "png", "jpg", "jpeg"])
+        .blocking_pick_files();
+    let mut out = Vec::new();
+    for fp in picked.unwrap_or_default() {
+        let path = fp.into_path().map_err(err)?;
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "image".into());
+        out.push((name, B64.encode(fs::read(&path).map_err(err)?)));
+    }
+    Ok(out)
 }
 
 fn write_map(root: &Path, files: &HashMap<String, String>) -> Result<usize, String> {
     for (rel, data) in files {
         let target = safe_join(root, rel)?;
+        assert_no_symlink(root, &target)?;
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).map_err(err)?;
         }
+        assert_no_symlink(root, &target)?;
         let bytes = B64.decode(data).map_err(err)?;
         // write via temp file + rename so a watcher never sees a half-written file
-        let tmp = target.with_extension("fresnel-tmp");
+        let mut tmp_name = target.file_name().unwrap_or_default().to_os_string();
+        tmp_name.push(".fresnel-tmp");
+        let tmp = target.with_file_name(tmp_name);
+        let _ = fs::remove_file(&tmp);
         fs::write(&tmp, bytes).map_err(err)?;
         fs::rename(&tmp, &target).map_err(err)?;
     }
@@ -86,17 +142,22 @@ fn write_map(root: &Path, files: &HashMap<String, String>) -> Result<usize, Stri
 #[tauri::command]
 fn write_bundle(state: State<AppState>, path: String, files: HashMap<String, String>, keep_assets: Vec<String>) -> Result<(), String> {
     let root = PathBuf::from(&path);
-    state.own_writes.lock().unwrap().insert(path.clone(), Instant::now());
-    fs::create_dir_all(root.join("Assets")).map_err(err)?;
+    let assets = root.join("Assets");
+    assert_no_symlink(&root, &assets)?;
+    fs::create_dir_all(&assets).map_err(err)?;
     write_map(&root, &files)?;
-    for entry in fs::read_dir(root.join("Assets")).map_err(err)? {
+    assert_no_symlink(&root, &assets)?;
+    for entry in fs::read_dir(&assets).map_err(err)? {
         let entry = entry.map_err(err)?;
         let name = entry.file_name().to_string_lossy().to_string();
+        // file_type() doesn't follow links: symlinks are never removed through
         if entry.file_type().map_err(err)?.is_file() && name != ".DS_Store" && !keep_assets.contains(&name) {
             fs::remove_file(entry.path()).map_err(err)?;
         }
     }
-    state.own_writes.lock().unwrap().insert(path, Instant::now());
+    if let Some(fp) = fingerprint(&root) {
+        state.fingerprints.lock().unwrap().insert(path, fp);
+    }
     Ok(())
 }
 
@@ -113,19 +174,25 @@ fn watch_bundle(app: AppHandle, state: State<AppState>, path: String) -> Result<
     }
     let key = path.clone();
     let handle = app.clone();
+    if let Some(fp) = fingerprint(Path::new(&path)) {
+        state.fingerprints.lock().unwrap().entry(path.clone()).or_insert(fp);
+    }
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else { return };
         if !matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)) {
             return;
         }
-        if event.paths.iter().all(|p| p.extension().map(|e| e == "fresnel-tmp").unwrap_or(false)) {
+        if event.paths.iter().all(|p| p.to_string_lossy().ends_with(".fresnel-tmp")) {
             return;
         }
+        let Some(fp) = fingerprint(Path::new(&key)) else { return };
         let state = handle.state::<AppState>();
-        if let Some(t) = state.own_writes.lock().unwrap().get(&key) {
-            if t.elapsed() < OWN_WRITE_GRACE {
-                return;
+        {
+            let mut prints = state.fingerprints.lock().unwrap();
+            if prints.get(&key) == Some(&fp) {
+                return; // our own save, or nothing actually changed
             }
+            prints.insert(key.clone(), fp);
         }
         let _ = handle.emit("bundle-changed", key.clone());
     })
@@ -138,6 +205,7 @@ fn watch_bundle(app: AppHandle, state: State<AppState>, path: String) -> Result<
 #[tauri::command]
 fn unwatch_bundle(state: State<AppState>, path: String) {
     state.watchers.lock().unwrap().remove(&path);
+    state.fingerprints.lock().unwrap().remove(&path);
 }
 
 #[tauri::command]
@@ -198,7 +266,7 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             read_bundle,
-            read_file,
+            pick_images,
             write_bundle,
             write_files,
             watch_bundle,
@@ -236,5 +304,25 @@ mod tests {
         assert_eq!(read.len(), 3);
         assert_eq!(B64.decode(&read["icon.json"]).unwrap(), b"{\"groups\":[]}");
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_symlinked_assets() {
+        let base = std::env::temp_dir().join(format!("fresnel-link-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let outside = base.join("outside");
+        let bundle = base.join("A.icon");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(&bundle).unwrap();
+        fs::write(outside.join("precious.txt"), b"keep").unwrap();
+        std::os::unix::fs::symlink(&outside, bundle.join("Assets")).unwrap();
+        let mut files = HashMap::new();
+        files.insert("Assets/a.svg".to_string(), B64.encode(b"<svg/>"));
+        assert!(write_map(&bundle, &files).is_err());
+        assert!(assert_no_symlink(&bundle, &bundle.join("Assets")).is_err());
+        assert!(outside.join("precious.txt").exists());
+        assert!(!outside.join("a.svg").exists());
+        fs::remove_dir_all(&base).unwrap();
     }
 }

@@ -58,8 +58,8 @@ export function Compare() {
   const doc = useDoc((s) => s.doc);
   const ui = useUI();
   const issues = useMemo(() => validate(doc), [doc]);
-  const darkMissing = issues.some((i) => i.id === 'V-08' && i.message.startsWith('Dark'));
-  const tintedMissing = issues.some((i) => i.id === 'V-08' && i.message.startsWith('Tinted'));
+  const darkMissing = issues.some((i) => i.id === 'V-08' && i.appearance === 'dark');
+  const tintedMissing = issues.some((i) => i.id === 'V-08' && i.appearance === 'tinted');
   const tiles = ui.platform === 'watchOS' ? TILES.slice(0, 1) : TILES;
   return (
     <div className="flex min-w-0 flex-1 flex-col bg-canvas">

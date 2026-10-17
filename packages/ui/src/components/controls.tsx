@@ -87,6 +87,8 @@ export function NumberField({
 }) {
   const [text, setText] = useState(format(value));
   const focused = useRef(false);
+  /** text shown when the field was focused: leaving it unchanged commits nothing */
+  const startText = useRef<string | null>(null);
   useEffect(() => {
     if (!focused.current) setText(format(value));
   }, [value, format]);
@@ -104,8 +106,9 @@ export function NumberField({
       return;
     }
     const c = Math.min(max, Math.max(min, v));
-    onChange(c);
+    if (c !== value) onChange(c);
     setText(format(c));
+    startText.current = format(c);
   };
   return (
     <label className={cx('flex h-[22px] min-w-0 items-center gap-1 rounded-[5px] bg-control px-2', className)}>
@@ -116,11 +119,15 @@ export function NumberField({
         value={text}
         onFocus={(e) => {
           focused.current = true;
+          startText.current = e.currentTarget.value;
           e.currentTarget.select();
         }}
         onBlur={() => {
           focused.current = false;
-          commit(parseInput(text));
+          const unchanged = text === startText.current || text.trim() === '';
+          startText.current = null;
+          if (unchanged) setText(format(value));
+          else commit(parseInput(text));
         }}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -178,8 +185,8 @@ export function Slider({
         onKeyDown={beginGesture}
         onKeyUp={endGesture}
         onBlur={endGesture}
-        onDoubleClick={() => defaultValue !== undefined && onChange(defaultValue)}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onDoubleClick={() => defaultValue !== undefined && defaultValue !== value && onChange(defaultValue)}
+        onChange={(e) => Number(e.target.value) !== value && onChange(Number(e.target.value))}
       />
       <NumberField
         className="w-14"
@@ -263,7 +270,11 @@ function HexField({ value, onChange, label }: { value: string; onChange: (hex: s
       aria-label={`${label} hex`}
       value={text}
       onChange={(e) => setText(e.target.value)}
-      onBlur={() => (/^#?[0-9a-f]{6}$/i.test(text) ? onChange(`#${text.replace('#', '').toUpperCase()}`) : setText(value))}
+      onBlur={() => {
+        const hex = `#${text.trim().replace('#', '').toUpperCase()}`;
+        if (/^#[0-9A-F]{6}$/.test(hex) && hex !== value.toUpperCase()) onChange(hex);
+        else setText(value);
+      }}
       onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
       className="tabular h-[22px] min-w-0 flex-1 rounded-[5px] bg-control px-2 font-mono text-xs outline-none"
     />

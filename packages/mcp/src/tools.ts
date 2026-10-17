@@ -129,6 +129,7 @@ export function createServer(ws: Workspace): McpServer {
       annotations: { destructiveHint: false, idempotentHint: false },
     },
     safe(async ({ path, background, dark_background, watch, overwrite }) => {
+      if (/\.zip$/i.test(path.trim())) throw new Error('icon_create writes an .icon folder; pass a path without .zip (use icon_export to make a zip)');
       const full = await ws.iconPath(path);
       const exists = await stat(full).then(() => true, () => false);
       if (exists && !overwrite) throw new Error(`${path} already exists. Pass overwrite: true to replace it.`);
@@ -229,8 +230,10 @@ export function createServer(ws: Workspace): McpServer {
           if (ref.kind !== 'group') throw new Error('`group` must name a group');
           gid = ref.id;
         } catch (e) {
-          if (/^#\d+$/.test(group.trim())) throw e;
-          gid = addGroup(doc, { name: group.trim() }).id;
+          // only a plain name that matched nothing creates a group (not #index, paths or ambiguous names)
+          const g = group.trim();
+          if (/^#\d+$/.test(g) || g.includes('/') || !/not found/i.test((e as Error).message)) throw e;
+          gid = addGroup(doc, { name: g }).id;
         }
         const l = addLayer(doc, gid, asset, {
           ...(name ? { name } : {}),

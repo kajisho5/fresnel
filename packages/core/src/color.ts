@@ -121,3 +121,33 @@ export function mix(a: RGBA, b: RGBA, t: number): RGBA {
 export function shade(c: RGBA, t: number): RGBA {
   return t >= 0 ? mix(c, { r: 1, g: 1, b: 1, a: c.a }, t) : mix(c, { r: 0, g: 0, b: 0, a: c.a }, -t);
 }
+
+/**
+ * Applies a color picked as sRGB hex to an existing color string, keeping its
+ * color space (Display P3 stays P3) and its alpha.
+ */
+export function recolor(original: unknown, hex: string, alpha?: number): string {
+  const orig = typeof original === 'string' ? parseColor(original) : null;
+  const picked = parseColor(normalizeColorInput(hex))!;
+  const [r, g, b] = picked.c as [number, number, number];
+  const a = alpha ?? (orig ? (orig.space === 'gray' || orig.space === 'extended-gray' ? orig.c[1] ?? 1 : orig.c[3] ?? 1) : 1);
+  if (orig?.space === 'display-p3') {
+    const lr = toLinear(r);
+    const lg = toLinear(g);
+    const lb = toLinear(b);
+    const pr = 0.8224621 * lr + 0.177538 * lg;
+    const pg = 0.0331941 * lr + 0.9668058 * lg;
+    const pb = 0.0170827 * lr + 0.0723974 * lg + 0.9105199 * lb;
+    return formatColor({ space: 'display-p3', c: [clamp01(fromLinear(pr)), clamp01(fromLinear(pg)), clamp01(fromLinear(pb)), a] });
+  }
+  return formatColor({ space: 'srgb', c: [r, g, b, a] });
+}
+
+/** Changes only the alpha of a color string; the color components are kept exactly. */
+export function withAlpha(original: unknown, alpha: number): string {
+  const orig = typeof original === 'string' ? parseColor(original) : null;
+  if (!orig) return formatColor({ space: 'srgb', c: [1, 1, 1, alpha] });
+  const gray = orig.space === 'gray' || orig.space === 'extended-gray';
+  const c = gray ? [orig.c[0] ?? 0, alpha] : [orig.c[0] ?? 0, orig.c[1] ?? 0, orig.c[2] ?? 0, alpha];
+  return formatColor({ space: orig.space, c });
+}

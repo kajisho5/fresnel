@@ -1,6 +1,6 @@
 /** Node-only helpers: read and write `.icon` bundle directories (and .icon.zip). */
-import { mkdir, readdir, readFile, rm, stat, writeFile, rename } from 'node:fs/promises';
-import { dirname, join, relative, sep } from 'node:path';
+import { lstat, mkdir, readdir, readFile, rm, stat, writeFile, rename } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { readBundle, unzipBundle, writeBundle, type FileMap } from './bundle';
 import type { IconDocument } from './model';
 
@@ -25,33 +25,60 @@ export async function loadIcon(path: string): Promise<LoadedIcon> {
   throw new Error(`${path} is not an .icon bundle (folder) or .icon.zip`);
 }
 
+/** Throws if `p` (or any existing directory between `root` and `p`) is a symlink. */
+async function assertNoSymlink(root: string, p: string): Promise<void> {
+  const rel = relative(root, p);
+  if (rel.startsWith('..') || isAbsolute(rel)) throw new Error(`Refusing to write outside the bundle: ${p}`);
+  let cur = root;
+  for (const part of rel ? rel.split(sep) : []) {
+    cur = join(cur, part);
+    try {
+      if ((await lstat(cur)).isSymbolicLink()) throw new Error(`Refusing to follow a symbolic link inside the bundle: ${relative(root, cur)}`);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw e;
+    }
+  }
+}
+
 /**
  * Writes a bundle directory atomically enough for editors: icon.json is written
  * via a temp file + rename, assets that are no longer referenced are removed
  * from Assets/ only. Other files in the bundle are left untouched.
+ * Symbolic links inside the bundle are never followed (so a crafted bundle
+ * can't make fresnel write or delete files elsewhere).
  */
 export async function saveIcon(path: string, doc: LoadedIcon | IconDocument): Promise<void> {
+  const root = resolve(path);
+  if ((await lstat(root).catch(() => null))?.isSymbolicLink()) throw new Error(`Refusing to save through a symbolic link: ${path}`);
   const files = writeBundle(doc, 'extra' in doc ? doc.extra : {});
-  await mkdir(join(path, 'Assets'), { recursive: true });
+  const assetsDir = join(root, 'Assets');
+  await assertNoSymlink(root, assetsDir);
+  await mkdir(assetsDir, { recursive: true });
   for (const [rel, bytes] of Object.entries(files)) {
-    const target = join(path, ...rel.split('/'));
-    if (!target.startsWith(path)) throw new Error(`Refusing to write outside the bundle: ${rel}`);
+    const target = resolve(root, ...rel.split('/'));
+    await assertNoSymlink(root, target);
     await mkdir(dirname(target), { recursive: true });
+    await assertNoSymlink(root, target);
     const tmp = `${target}.fresnel-tmp`;
-    await writeFile(tmp, bytes);
+    await rm(tmp, { force: true });
+    await writeFile(tmp, bytes, { flag: 'wx' });
     await rename(tmp, target);
   }
   const keep = new Set(Object.keys(doc.assets));
-  for (const e of await readdir(join(path, 'Assets'), { withFileTypes: true })) {
-    if (e.isFile() && !keep.has(e.name) && e.name !== '.DS_Store') await rm(join(path, 'Assets', e.name));
+  await assertNoSymlink(root, assetsDir);
+  for (const e of await readdir(assetsDir, { withFileTypes: true })) {
+    // Dirent.isFile() is false for symlinks, so links are never removed through
+    if (e.isFile() && !keep.has(e.name) && e.name !== '.DS_Store') await rm(join(assetsDir, e.name));
   }
 }
 
 export async function writeFiles(dir: string, files: Record<string, Uint8Array>): Promise<string[]> {
   const written: string[] = [];
   for (const [rel, bytes] of Object.entries(files)) {
-    const target = join(dir, ...rel.split('/'));
-    if (relative(dir, target).startsWith('..')) throw new Error(`Refusing to write outside ${dir}: ${rel}`);
+    const target = resolve(dir, ...rel.split('/'));
+    const r = relative(resolve(dir), target);
+    if (r.startsWith('..') || isAbsolute(r)) throw new Error(`Refusing to write outside ${dir}: ${rel}`);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, bytes);
     written.push(target);

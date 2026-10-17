@@ -172,3 +172,59 @@ test('switches to Japanese and light theme', async ({ page }) => {
   await page.getByRole('menuitem', { name: /テーマ/ }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 });
+
+test('dirty flag follows the saved state', async ({ page }) => {
+  await open(page);
+  await page.locator('body').press('Control+z');
+  await expect(page.getByText('— Edited')).toHaveCount(0);
+  await page.getByRole('treeitem', { name: /Waves/ }).click();
+  const tr = field(page, 'Translucency');
+  await tr.focus();
+  await tr.press('Tab');
+  await expect(page.getByText('— Edited')).toHaveCount(0);
+  await tr.fill('60');
+  await tr.press('Enter');
+  await expect(page.getByText('— Edited')).toBeVisible();
+  await page.getByRole('button', { name: /^Undo/ }).click();
+  await expect(tr).toHaveValue('45%');
+  await expect(page.getByText('— Edited')).toHaveCount(0);
+});
+
+test('undo works right after a slider step', async ({ page }) => {
+  await open(page);
+  await page.getByRole('treeitem', { name: /Waves/ }).click();
+  const slider = page.getByRole('slider', { name: 'Translucency' });
+  await slider.focus();
+  await slider.press('ArrowRight');
+  await expect(field(page, 'Translucency')).toHaveValue('46%');
+  await slider.press('Control+z');
+  await expect(field(page, 'Translucency')).toHaveValue('45%');
+});
+
+test('drag reorders groups where the indicator shows', async ({ page }) => {
+  await open(page);
+  const sun = page.getByRole('treeitem', { name: /Sun/ }).first();
+  const waves = page.getByRole('treeitem', { name: /Waves/ });
+  const box = (await waves.boundingBox())!;
+  await sun.dragTo(waves, { targetPosition: { x: box.width / 2, y: 3 } });
+  const names = (await page.getByRole('treeitem').allInnerTexts()).map((n) => n.split('\n')[0]!.trim());
+  expect(names.indexOf('Sun')).toBeLessThan(names.indexOf('Waves'));
+  // and dragging it back below Waves (lower half of the last row) restores the order
+  await page.getByRole('treeitem', { name: /Sun/ }).first().dragTo(waves, { targetPosition: { x: box.width / 2, y: box.height - 3 } });
+  const after = (await page.getByRole('treeitem').allInnerTexts()).map((n) => n.split('\n')[0]!.trim());
+  expect(after.indexOf('Waves')).toBeLessThan(after.indexOf('Sun'));
+});
+
+test('a variant can store the default value', async ({ page }) => {
+  await open(page);
+  await page.getByRole('treeitem', { name: /Wave Front/ }).click();
+  const blend = page.getByRole('combobox', { name: 'Blend Mode' }).first();
+  await blend.selectOption('multiply');
+  await page.getByRole('radio', { name: 'Dark', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Color: Applies to' }).selectOption('variant');
+  await page.getByRole('combobox', { name: 'Blend Mode' }).first().selectOption('normal');
+  await expect(page.getByRole('combobox', { name: 'Blend Mode' }).first()).toHaveValue('normal');
+  await page.getByRole('combobox', { name: 'Color: Applies to' }).selectOption('all');
+  await expect(page.getByRole('combobox', { name: 'Blend Mode' }).first()).toHaveValue('multiply');
+  await expect(page.getByRole('button', { name: 'Remove variant Dark' })).toBeVisible();
+});

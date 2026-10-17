@@ -95,9 +95,11 @@ export function syncFeatures(doc: Pick<IconDocument, 'props' | 'groups'>): void 
 }
 
 export function writeBundle(doc: IconDocument, extra: FileMap = {}): FileMap {
-  syncFeatures(doc);
+  // never mutate the caller's document (the UI shares it with undo history)
+  const synced = { props: { ...doc.props }, groups: doc.groups };
+  syncFeatures(synced);
   const files: FileMap = { ...extra };
-  files['icon.json'] = strToU8(serializeIconJson(doc));
+  files['icon.json'] = strToU8(serializeIconJson({ ...doc, props: synced.props }));
   for (const a of Object.values(doc.assets)) files[`Assets/${a.name}`] = a.bytes;
   return files;
 }

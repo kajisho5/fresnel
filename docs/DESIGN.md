@@ -473,9 +473,10 @@ AI エージェント（Claude Desktop / Claude Code など）から、`.icon` �
 | `@fresnel/render` | 実装済み（SVG 合成方式）。屈折の近似、外側スペキュラ、Effects のオフ表示に対応 |
 | `fresnel-mcp` | 実装済み。`icon_set` と `icon_render` に `platform` 引数あり |
 | `fresnel-icon`（CLI） | 実装済み |
-| Web アプリ | Icon Composer に準じた UI（A4 を参照）。IndexedDB への自動保存と、再読み込み時の復元に対応。Playwright E2E 12 本 |
+| Web アプリ | Icon Composer に準じた UI（A4 を参照）。IndexedDB への自動保存と、再読み込み時の復元に対応。Playwright E2E 16 本 |
 | 書き出し | iOS の appiconset の 1024 は、全面不透明かつアルファなしの RGB PNG。Tinted はグレースケール |
 | ブランド | `brand/`（ロゴ・ファビコン・OGP・GitHub social preview）。`pnpm brand` で生成する |
 | デスクトップ（Tauri v2） | 実装済み。Linux の .deb ビルドと起動を確認済み。macOS と Windows は CI（release.yml）でビルドする |
 | Assets.car | macOS ＋ Xcode 26 以降で actool を呼ぶ。CI の macOS ジョブで検証する（ローカルでは未検証） |
-| 未対応 | WebGL2 の屈折パス、visionOS / tvOS |
+| 安全性 | `.icon` 内のシンボリックリンクは書き込み・削除で辿らない（core / MCP / デスクトップ）。SVG はトークナイザ＋許可リストで無害化 |
+| 未対応 | WebGL2 の屈折パス、visionOS / tvOS、最近使ったファイル（F-01） |

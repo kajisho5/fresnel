@@ -41,10 +41,17 @@ export function newIcon() {
   useUI.getState().select({ kind: 'document' });
 }
 
+/** Commits a value still being typed (fields commit on blur) before saving or exporting. */
+export function commitPendingEdit() {
+  const el = document.activeElement as HTMLElement | null;
+  if (el && el !== document.body && el.matches('input, textarea')) el.blur();
+}
+
 export async function save(as = false) {
+  commitPendingEdit();
   const s = useDoc.getState();
   try {
-    const r = as || !platform.canSaveInPlace(s.location) ? await platform.saveAs(s.doc, s.extra, s.name) : await platform.save(s.doc, s.extra, s.name, s.location);
+    const r = as || !platform.canSaveInPlace(s.location) ? await platform.saveAs(s.doc, s.extra, s.name, s.location) : await platform.save(s.doc, s.extra, s.name, s.location);
     if (!r) return;
     useDoc.getState().markSaved(r.location, r.name);
     useUI.getState().toast('success', t('saved'));
@@ -76,11 +83,12 @@ export function addAssets(assets: Asset[], groupName?: string) {
   let gid: string | null = targetGroup();
   if (groupName) {
     const doc = useDoc.getState().doc;
-    gid = doc.groups.find((g) => (g.props.name?.plain?.value ?? '') === groupName)?.id ?? useDoc.getState().addGroup(groupName);
+    gid = doc.groups.find((g) => (g.props.name?.plain?.value ?? '') === groupName)?.id ?? useDoc.getState().addGroup(groupName) ?? null;
+    if (!gid) return;
   }
   // addLayers puts its first item in front, so pass the highest name first
   const ids = useDoc.getState().addLayers(gid, sorted.reverse());
-  if (ids.length) useUI.getState().select({ kind: 'layer', id: ids[0]! });
+  if (ids?.length) useUI.getState().select({ kind: 'layer', id: ids[0]! });
 }
 
 export async function importLayers() {

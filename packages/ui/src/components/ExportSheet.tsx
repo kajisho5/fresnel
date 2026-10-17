@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import {
   APPEARANCES,
@@ -14,6 +14,7 @@ import { useDoc, type FileMap } from '../store/doc';
 import { useUI } from '../store/ui';
 import { t, useLang } from '../i18n';
 import { getPlatform } from '../actions';
+import { safeFileName } from '../platform';
 import { browserRasterizer, svgUrl } from '../lib/raster';
 import { renderOptsFrom } from '../lib/renderOpts';
 import { IssueIcon, useActool, useIssues } from './StatusBar';
@@ -37,7 +38,7 @@ function Check({ checked, disabled, onChange, label }: { checked: boolean; disab
 
 export function ExportSheet() {
   useLang();
-  const { doc, extra, name } = useDoc();
+  const { doc, extra, name: docName } = useDoc();
   const ui = useUI();
   const { set } = ui;
   const ropts = renderOptsFrom(ui);
@@ -56,10 +57,35 @@ export function ExportSheet() {
     return () => URL.revokeObjectURL(u);
   }, [doc, ropts.tint, ropts.idiom]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // HIG A4 sheets: Esc cancels, ⏎ runs the primary button, focus stays inside and returns on close
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const runRef = useRef<() => void>(() => undefined);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && set({ exportOpen: false });
+    const prev = document.activeElement as HTMLElement | null;
+    const focusables = () =>
+      [...(dialogRef.current?.querySelectorAll<HTMLElement>('button, input, select, textarea, [tabindex]:not([tabindex="-1"])') ?? [])].filter(
+        (el) => !(el as HTMLButtonElement).disabled,
+      );
+    focusables()[0]?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') set({ exportOpen: false });
+      else if (e.key === 'Enter' && !(e.target as HTMLElement).closest('button, select, textarea')) {
+        e.preventDefault();
+        runRef.current();
+      } else if (e.key === 'Tab') {
+        const f = focusables();
+        if (!f.length) return;
+        const i = f.indexOf(document.activeElement as HTMLElement);
+        const next = e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : i === f.length - 1 ? 0 : i + 1;
+        e.preventDefault();
+        f[next]!.focus();
+      }
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      prev?.focus?.();
+    };
   }, [set]);
 
   const sum = summarizeIssues(issues);
@@ -73,6 +99,7 @@ export function ExportSheet() {
     try {
       const raster = browserRasterizer(doc, { tint: ropts.tint!, effects: ropts.effects !== false });
       const files: FileMap = {};
+      const name = safeFileName(docName);
       const put = (prefix: string, m: FileMap) => Object.entries(m).forEach(([k, v]) => (files[`${prefix}${k}`] = v));
       const wantCar = formats.car && actool && !!plat.compileCar;
       if (formats.icon || wantCar) put(`${name}.icon/`, writeBundle(doc, extra));
@@ -91,6 +118,10 @@ export function ExportSheet() {
       setBusy(false);
     }
   };
+  runRef.current = () => {
+    if (!busy && any) void run();
+  };
+
 
   const formatRows: { k: Format; title: string; desc: string; disabled?: boolean; extra?: React.ReactNode }[] = [
     { k: 'icon', title: t('iconBundle'), desc: t('iconBundleDesc') },
@@ -118,16 +149,16 @@ export function ExportSheet() {
 
   return (
     <div className="fixed inset-0 z-50 flex justify-center bg-black/40" onMouseDown={(e) => e.target === e.currentTarget && set({ exportOpen: false })}>
-      <div role="dialog" aria-modal aria-labelledby="export-title" className="fr-sheet mt-[52px] flex h-fit max-h-[calc(100vh-80px)] w-[600px] flex-col overflow-hidden rounded-[14px] border border-hairline bg-elevated shadow-[0_18px_40px_rgba(0,0,0,0.55)]">
+      <div ref={dialogRef} role="dialog" aria-modal aria-labelledby="export-title" className="fr-sheet mt-[52px] flex h-fit max-h-[calc(100vh-80px)] w-[600px] flex-col overflow-hidden rounded-[14px] border border-hairline bg-elevated shadow-[0_18px_40px_rgba(0,0,0,0.55)]">
         <div className="flex-1 overflow-y-auto px-7 pt-5 pb-4">
           <div className="flex items-center gap-3.5">
             {thumb && <img src={thumb} alt="" className="h-10 w-10" />}
             <div>
               <h2 id="export-title" className="m-0 text-xl leading-[26px] font-semibold">
-                {t('exportTitle')} “{name}”
+                {t('exportTitle')} “{docName}”
               </h2>
               <p className="m-0 text-xs text-t2">
-                {layerCount} layers · {doc.groups.length} groups · 6 appearances
+                {t('exportSummary', { layers: layerCount, groups: doc.groups.length })}
               </p>
             </div>
           </div>
@@ -170,11 +201,11 @@ export function ExportSheet() {
                 </div>
               </div>
             ))}
-            {sum.errors > 0 && <p className="mt-2 text-err">Fix errors before exporting to Xcode.</p>}
+            {sum.errors > 0 && <p className="mt-2 text-err">{t('fixErrorsFirst')}</p>}
           </div>
 
           <h3 className="mt-5 mb-2 text-[11px] font-semibold tracking-[0.6px] text-t3">{t('saveTo')}</h3>
-          <p className="m-0 font-mono text-xs text-t2">{plat.kind === 'web' ? `${name}-export.zip — ${t('downloadZip')}` : t('chooseFolder')}</p>
+          <p className="m-0 font-mono text-xs text-t2">{plat.kind === 'web' ? `${safeFileName(docName)}-export.zip — ${t('downloadZip')}` : t('chooseFolder')}</p>
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-sep px-7 py-3">
           <Button onClick={() => set({ exportOpen: false })}>{t('cancel')}</Button>

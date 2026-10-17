@@ -1,4 +1,4 @@
-import { useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { ChevronDown, ChevronRight, Eye, EyeOff, Folder, Plus } from 'lucide-react';
 import {
   baseValue,
@@ -7,6 +7,9 @@ import {
   nameOf,
   resolveProp,
   type Asset,
+  type Idiom,
+  type Prop,
+  type ResolveCtx,
   type Fill,
   type GroupNode,
   type IconDocument,
@@ -29,7 +32,10 @@ export function nodeMenu(kind: 'group' | 'layer' | 'document'): MenuItem[] {
   if (kind === 'document')
     return [
       { label: t('newImage'), onSelect: importLayers },
-      { label: t('newGroup'), onSelect: () => useUI.getState().select({ kind: 'group', id: useDoc.getState().addGroup() }) },
+      { label: t('newGroup'), onSelect: () => {
+        const id = useDoc.getState().addGroup();
+        if (id) useUI.getState().select({ kind: 'group', id });
+      } },
     ];
   const s = useUI.getState().selection;
   return [
@@ -48,7 +54,18 @@ export function nodeMenu(kind: 'group' | 'layer' | 'document'): MenuItem[] {
   ];
 }
 
-const urlCache = new WeakMap<Uint8Array, string>();
+/** Object URLs for layer thumbnails, keyed by the (immutable) asset bytes. */
+const urlCache = new Map<Uint8Array, string>();
+/** Revokes thumbnail URLs of assets no longer in the document (recreated on demand after undo). */
+function pruneAssetUrls(doc: IconDocument) {
+  const live = new Set(Object.values(doc.assets).map((a) => a.bytes));
+  for (const [bytes, url] of urlCache) {
+    if (!live.has(bytes)) {
+      URL.revokeObjectURL(url);
+      urlCache.delete(bytes);
+    }
+  }
+}
 function assetUrl(a: Asset): string {
   let u = urlCache.get(a.bytes);
   if (!u) {
@@ -90,10 +107,16 @@ export function Sidebar() {
   const renaming = useRename((s) => s.id);
   const setRenaming = useRename((s) => s.set);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; after: boolean } | null>(null);
+  const lowerHalf = (e: DragEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    return e.clientY > r.top + r.height / 2;
+  };
   const actions = useDoc.getState();
 
-  const flat = useMemo(() => flatten(doc, collapsed), [doc, collapsed]);
+  const idiom = useUI((u) => u.platform) as Idiom;
+  const flat = useMemo(() => flatten(doc, collapsed, { appearance, idiom }), [doc, collapsed, appearance, idiom]);
+  useEffect(() => pruneAssetUrls(doc), [doc]);
   const isSel = (s: Selection) => selection.kind === s.kind && (s.kind === 'document' || ('id' in selection && selection.id === (s as { id: string }).id));
   const layerCount = doc.groups.reduce((a, g) => a + g.layers.length, 0);
   const bgFill = resolveProp<Fill>(doc.props.fill, { appearance }, 'automatic');
@@ -104,17 +127,26 @@ export function Sidebar() {
   };
   const onDrop = (e: DragEvent, target: { kind: 'group'; g: GroupNode; gi: number } | { kind: 'layer'; g: GroupNode; l: LayerNode; li: number }) => {
     const raw = e.dataTransfer.getData(DND);
+    const after = lowerHalf(e);
     setDropTarget(null);
     if (!raw) return;
     e.preventDefault();
     e.stopPropagation();
     const d = JSON.parse(raw) as DragData;
+    // the upper half of a row inserts before it, the lower half after it (matching the indicator line);
+    // moveNode removes the item first, so moving down a list needs one less
     if (d.kind === 'group') {
-      const gi = target.kind === 'group' ? target.gi : doc.groups.indexOf(target.g);
-      actions.move({ kind: 'group', id: d.id }, gi);
+      let gi = (target.kind === 'group' ? target.gi : doc.groups.indexOf(target.g)) + (after && target.kind === 'group' ? 1 : 0);
+      const from = doc.groups.findIndex((g) => g.id === d.id);
+      if (from < 0) return;
+      if (from < gi) gi -= 1;
+      if (from !== gi) actions.move({ kind: 'group', id: d.id }, gi);
     } else {
-      const idx = target.kind === 'layer' ? target.li : 0;
-      actions.move({ kind: 'layer', id: d.id }, idx, target.g.id);
+      // dropping a layer on a group row puts it at the top of that group
+      let idx = target.kind === 'layer' ? target.li + (after ? 1 : 0) : 0;
+      const from = target.g.layers.findIndex((l) => l.id === d.id);
+      if (from >= 0 && from < idx) idx -= 1;
+      if (from !== idx || from < 0) actions.move({ kind: 'layer', id: d.id }, idx, target.g.id);
     }
   };
 
@@ -180,7 +212,7 @@ export function Sidebar() {
                 key={sel.id}
                 level={r.kind === 'group' ? 1 : 2}
                 selected={isSel(r.sel)}
-                dropping={dropTarget === sel.id}
+                dropping={dropTarget?.id === sel.id ? (dropTarget.after && r.kind === 'layer' ? 'after' : dropTarget.after && r.kind === 'group' && collapsed.has(sel.id) ? 'after' : dropTarget.after ? 'into' : 'before') : undefined}
                 onClick={() => select(r.sel)}
                 onDoubleClick={() => setRenaming(sel.id)}
                 onContextMenu={(e) => openMenu(e, r.sel)}
@@ -189,15 +221,16 @@ export function Sidebar() {
                 onDragOver={(e) => {
                   if (!e.dataTransfer.types.includes(DND)) return;
                   e.preventDefault();
-                  setDropTarget(sel.id);
+                  const after = lowerHalf(e);
+                  setDropTarget((d) => (d?.id === sel.id && d.after === after ? d : { id: sel.id, after }));
                 }}
-                onDragLeave={() => setDropTarget((d) => (d === sel.id ? null : d))}
+                onDragLeave={() => setDropTarget((d) => (d?.id === sel.id ? null : d))}
                 onDrop={(e) => onDrop(e, target)}
                 expander={
                   r.kind === 'group' ? (
                     <button
                       type="button"
-                      aria-label={collapsed.has(sel.id) ? 'Expand' : 'Collapse'}
+                      aria-label={collapsed.has(sel.id) ? t('expandRow') : t('collapseRow')}
                       onClick={(e) => {
                         e.stopPropagation();
                         const c = new Set(collapsed);
@@ -266,11 +299,12 @@ interface FlatRow {
   hidden: boolean;
 }
 
-function flatten(doc: IconDocument, collapsed: Set<string>): FlatRow[] {
+function flatten(doc: IconDocument, collapsed: Set<string>, ctx: ResolveCtx): FlatRow[] {
+  const isHidden = (p: Prop | undefined) => resolveProp<boolean>(p, ctx, false) === true;
   const rows: FlatRow[] = [];
   doc.groups.forEach((g, gi) => {
     const glass = g.layers.some((l) => baseValue(l.props.glass) === true) || (baseValue(g.props.translucency) as { enabled?: boolean } | undefined)?.enabled === true;
-    rows.push({ kind: 'group', sel: { kind: 'group', id: g.id }, name: nameOf(g) || `Group ${gi + 1}`, group: g, gi, glass, hidden: baseValue(g.props.hidden) === true });
+    rows.push({ kind: 'group', sel: { kind: 'group', id: g.id }, name: nameOf(g) || `Group ${gi + 1}`, group: g, gi, glass, hidden: isHidden(g.props.hidden) });
     if (collapsed.has(g.id)) return;
     g.layers.forEach((l, li) => {
       const img = baseValue(l.props['image-name']);
@@ -284,7 +318,7 @@ function flatten(doc: IconDocument, collapsed: Set<string>): FlatRow[] {
         li,
         ...(typeof img === 'string' && doc.assets[img] ? { asset: doc.assets[img] } : {}),
         glass: false,
-        hidden: baseValue(l.props.hidden) === true,
+        hidden: isHidden(l.props.hidden),
       });
     });
   });
@@ -310,7 +344,7 @@ function Row({
 }: {
   level: 1 | 2;
   selected: boolean;
-  dropping?: boolean;
+  dropping?: 'before' | 'after' | 'into';
   thumb: React.ReactNode;
   name: string;
   badge?: string | undefined;
@@ -341,7 +375,9 @@ function Row({
         'group relative flex h-8 items-center gap-1.5 rounded-md pr-2 transition-colors duration-75',
         level === 1 ? 'pl-2' : 'pl-[34px]',
         selected ? 'bg-selected' : 'hover:bg-hover',
-        dropping && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded before:bg-accent',
+        dropping === 'before' && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded before:bg-accent',
+        dropping === 'after' && 'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded after:bg-accent',
+        dropping === 'into' && 'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded after:bg-accent',
       )}
     >
       <div className="flex w-4 justify-center">{expander}</div>
@@ -369,7 +405,7 @@ function Row({
       {onToggleHidden && (
         <button
           type="button"
-          aria-label={hidden ? 'Show' : 'Hide'}
+          aria-label={hidden ? t('showNode') : t('hideNode')}
           onClick={(e) => {
             e.stopPropagation();
             onToggleHidden();

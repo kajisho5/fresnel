@@ -251,3 +251,15 @@ describe('platform variants and features', () => {
     expect(() => setProp(doc, ref, 'specular', 'middle')).toThrow();
   });
 });
+
+describe('sanitizeSvg bypasses', () => {
+  it('handles unquoted, css, smil and split-tag tricks', () => {
+    const s = sanitizeSvg(
+      '<svg><image href=https://e.x/a.png /><style>.a{fill:url(https://e.x/a)} @import "x.css";</style><rect style="fill:url(http://e.x)"/>' +
+        '<scr<script></script>ipt>alert(1)</script><set attributeName="href" to="javascript:alert(1)"/><animate attributeName="href"></animate><use href="#a" fill="url(#g)"/></svg>',
+    );
+    expect(s).not.toMatch(/https?:|@import|<script|<set|<animate|javascript/i);
+    expect(s).toContain('href="#a"');
+    expect(s).toContain('url(#g)');
+  });
+});

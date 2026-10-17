@@ -168,7 +168,11 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   if (dark && !darkOverridden && bgFill !== 'automatic' && bgFill !== 'system-dark' && bgFill !== 'none') darken = 0.62; // system-generated dark
   let bgPaint: string | null;
   const full = { x: 0, y: 0, w: C, h: C };
-  if (isClear) {
+  // an explicit Mono ("tinted") fill override replaces the system-generated clear / tinted background [推測]
+  const monoOverride = (isClear || isTinted) && !!fillProp?.specs?.some((s) => s.appearance === 'tinted' || s.appearance === appearance);
+  if (monoOverride) {
+    bgPaint = paintFor(bgFill ?? 'automatic', defs, full, dark);
+  } else if (isClear) {
     bgPaint = dark
       ? paintFor({ 'linear-gradient': ['srgb:0.24,0.25,0.28,0.92', 'srgb:0.11,0.12,0.13,0.92'] }, defs, full, true)
       : paintFor({ 'linear-gradient': ['srgb:0.97,0.98,0.99,0.86', 'srgb:0.84,0.87,0.91,0.86'] }, defs, full, false);
@@ -197,16 +201,23 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
       `</g>`,
   );
 
+  // Backdrops (translucency / refraction) sample `plainId`: background plus the plain content of the
+  // groups behind, without their own backdrop effects. Sampling the full stack instead would make
+  // every level reference the previous one twice, and render time would grow as 2^groups.
+  let plainId = bgStackId;
   for (const g of groups) {
     if (resolveProp(g.props.hidden, ctx, false)) continue;
-    const drawn = drawGroup(g);
+    const drawn = drawGroup(g, plainId);
     if (!drawn) continue;
     const next = defs.id('s');
     defs.add(`<g id="${next}"><use href="#${stackId}"/>${drawn}</g>`);
     stackId = next;
+    const plain = defs.id('p');
+    defs.add(`<g id="${plain}"><use href="#${plainId}"/><use href="#${contentIds[contentIds.length - 1]}"/></g>`);
+    plainId = plain;
   }
 
-  function drawGroup(g: GroupNode): string | null {
+  function drawGroup(g: GroupNode, backdropId: string): string | null {
     const gpos = resolveProp<Position | null>(g.props.position, ctx, null);
     const layers = FRONT_FIRST ? [...g.layers].reverse() : [...g.layers];
     const placed: Placed[] = [];
@@ -298,7 +309,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
       defs.add(`<filter id="${fid}" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="${n(blurPx)}"/></filter>`);
       const zoom = 1.02 + (refracts ? (refr!.strength ?? 0) * 0.12 : 0.015);
       out.push(
-        `<g mask="url(#${mid})"><use href="#${stackId}" filter="url(#${fid})" transform="translate(${H} ${H}) scale(${n(zoom)}) translate(${-H} ${-H})"/></g>`,
+        `<g mask="url(#${mid})"><use href="#${backdropId}" filter="url(#${fid})" transform="translate(${H} ${H}) scale(${n(zoom)}) translate(${-H} ${-H})"/></g>`,
       );
     }
 

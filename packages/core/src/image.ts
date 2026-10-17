@@ -67,23 +67,155 @@ export function jpgSize(b: Uint8Array): { width: number; height: number } {
   return { width: 0, height: 0 };
 }
 
+/** Elements removed together with their content. */
+const DROP_ELEMENTS = new Set([
+  'script', 'foreignobject', 'iframe', 'embed', 'object', 'audio', 'video', 'canvas',
+  'set', 'animate', 'animatemotion', 'animatetransform', 'animatecolor', 'discard', 'handler', 'listener', 'a',
+]);
+
+function safeUrlRef(v: string): boolean {
+  const t = v.trim().replace(/^['"]|['"]$/g, '').trim();
+  return t.startsWith('#') || /^data:image\/(png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]*$/i.test(t);
+}
+
+/** Removes url(...) references to anything but local fragments / inline images, and @import. */
+function cleanCss(css: string): string {
+  return css
+    .replace(/@import\b[^;]*;?/gi, '')
+    .replace(/url\s*\(([^)]*)\)/gi, (m, inner: string) => (safeUrlRef(inner) ? m : 'none'))
+    .replace(/expression\s*\(/gi, '(')
+    .replace(/javascript\s*:/gi, '');
+}
+
+function cleanAttrs(raw: string): string {
+  const out: string[] = [];
+  const re = /([^\s"'<>\/=]+)(?:\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  for (const m of raw.matchAll(re)) {
+    const name = m[1]!;
+    const lname = name.toLowerCase();
+    const value = m[3] ?? m[4] ?? m[5];
+    if (lname.startsWith('on')) continue;
+    if (value === undefined) {
+      out.push(name);
+      continue;
+    }
+    if (lname === 'href' || lname.endsWith(':href') || lname === 'src') {
+      if (!safeUrlRef(value)) continue;
+    }
+    if (/javascript\s*:|vbscript\s*:/i.test(value)) continue;
+    let v = value;
+    if (lname === 'style' || /url\s*\(/i.test(v)) v = cleanCss(v);
+    out.push(`${name}="${v.replace(/"/g, '&quot;')}"`);
+  }
+  return out.length ? ' ' + out.join(' ') : '';
+}
+
+function sanitizeOnce(svg: string): string {
+  let out = '';
+  let i = 0;
+  const skip: string[] = []; // stack of dropped element names
+  let inStyle = false;
+  while (i < svg.length) {
+    const lt = svg.indexOf('<', i);
+    const text = lt < 0 ? svg.slice(i) : svg.slice(i, lt);
+    if (!skip.length) out += inStyle ? cleanCss(text) : text;
+    if (lt < 0) break;
+    if (svg.startsWith('<!--', lt)) {
+      const e = svg.indexOf('-->', lt + 4);
+      i = e < 0 ? svg.length : e + 3;
+      continue;
+    }
+    if (svg.startsWith('<![CDATA[', lt)) {
+      const e = svg.indexOf(']]>', lt);
+      const body = svg.slice(lt + 9, e < 0 ? svg.length : e);
+      if (!skip.length) out += inStyle ? `<![CDATA[${cleanCss(body)}]]>` : `<![CDATA[${body}]]>`;
+      i = e < 0 ? svg.length : e + 3;
+      continue;
+    }
+    if (svg.startsWith('<!', lt)) {
+      // DOCTYPE / ENTITY declarations (may contain an internal subset [...])
+      let j = lt + 2;
+      let depth = 0;
+      for (; j < svg.length; j++) {
+        const c = svg[j];
+        if (c === '[') depth++;
+        else if (c === ']') depth--;
+        else if (c === '>' && depth <= 0) break;
+      }
+      i = j + 1;
+      continue;
+    }
+    if (svg.startsWith('<?', lt)) {
+      const e = svg.indexOf('?>', lt);
+      const pi = svg.slice(lt, e < 0 ? svg.length : e + 2);
+      if (!skip.length && /^<\?xml[\s?]/i.test(pi)) out += pi;
+      i = e < 0 ? svg.length : e + 2;
+      continue;
+    }
+    // tag: find the closing '>' outside quotes
+    let j = lt + 1;
+    let q: string | null = null;
+    let stray = false;
+    for (; j < svg.length; j++) {
+      const c = svg[j]!;
+      if (q) {
+        if (c === q) q = null;
+      } else if (c === '"' || c === "'") q = c;
+      else if (c === '>') break;
+      else if (c === '<') {
+        stray = true;
+        break;
+      }
+    }
+    const inner = svg.slice(lt + 1, j);
+    const m = stray ? null : /^(\/?)\s*([A-Za-z_][\w.:-]*)([\s\S]*?)(\/?)\s*$/.exec(inner);
+    if (!m) {
+      // not a well-formed tag: keep it as text, escaped
+      if (!skip.length) out += '&lt;';
+      i = lt + 1;
+      continue;
+    }
+    i = j + 1;
+    const [, close, tag, attrs, selfClose] = m as unknown as [string, string, string, string, string];
+    const local = tag.toLowerCase().replace(/^.*:/, '');
+    if (close) {
+      if (skip.length) {
+        if (skip[skip.length - 1] === local) skip.pop();
+        continue;
+      }
+      if (DROP_ELEMENTS.has(local)) continue;
+      if (local === 'style') inStyle = false;
+      out += `</${tag}>`;
+      continue;
+    }
+    if (skip.length) {
+      if (!selfClose && skip[skip.length - 1] === local) skip.push(local);
+      continue;
+    }
+    if (DROP_ELEMENTS.has(local)) {
+      if (!selfClose) skip.push(local);
+      continue;
+    }
+    if (local === 'style' && !selfClose) inStyle = true;
+    out += `<${tag}${cleanAttrs(attrs)}${selfClose ? '/' : ''}>`;
+  }
+  return out;
+}
+
 /**
- * Removes active content from SVG text. Defense in depth only: fresnel never puts
- * imported SVG into the DOM; it renders it through <img>/resvg where scripts don't run.
+ * Removes active content and external references from SVG text: scripts,
+ * event handlers, foreignObject, SMIL animation, links, and any href / url()
+ * that isn't a local fragment or an inline image. It tokenizes the markup
+ * (quotes, comments, CDATA aware) and repeats until the output is stable.
+ * Defense in depth: fresnel itself only renders SVG through <img> / resvg.
  */
 export function sanitizeSvg(svg: string): string {
   let s = svg;
-  s = s.replace(/<script\b[\s\S]*?<\/script\s*>/gi, '').replace(/<script\b[^>]*\/>/gi, '');
-  s = s.replace(/<foreignObject\b[\s\S]*?<\/foreignObject\s*>/gi, '').replace(/<foreignObject\b[^>]*\/>/gi, '');
-  s = s.replace(/<!DOCTYPE[\s\S]*?(\[[\s\S]*?\])?\s*>/gi, '');
-  s = s.replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-  // external references: keep only fragment (#id) and data: URLs
-  s = s.replace(/\s(xlink:href|href)\s*=\s*("([^"]*)"|'([^']*)')/gi, (m, attr: string, _q, d1?: string, d2?: string) => {
-    const v = (d1 ?? d2 ?? '').trim();
-    return v.startsWith('#') || /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(v) ? m : '';
-  });
-  s = s.replace(/javascript:/gi, '');
-  s = s.replace(/@import[^;]+;/gi, '');
+  for (let n = 0; n < 5; n++) {
+    const next = sanitizeOnce(s);
+    if (next === s) break;
+    s = next;
+  }
   return s;
 }
 

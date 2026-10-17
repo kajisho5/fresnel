@@ -67,6 +67,9 @@ export function findLayer(doc: IconDocument, id: string): { group: GroupNode; la
 export function resolvePath(doc: IconDocument, path: string): NodeRef {
   const p = path.trim();
   if (p === '' || p === 'document' || p === '/') return { kind: 'document' };
+  // a group whose name itself contains "/" (written by another tool)
+  const whole = doc.groups.filter((g) => nameOf(g).toLowerCase() === p.toLowerCase());
+  if (whole.length === 1) return { kind: 'group', id: whole[0]!.id };
   const [gp, lp, ...rest] = p.split('/');
   if (rest.length) throw new OpError(`Invalid target "${path}". Use "Group" or "Group/Layer".`);
   const pick = <T extends GroupNode | LayerNode>(list: T[], key: string, what: string): T => {
@@ -103,14 +106,28 @@ export function nodeOf(doc: IconDocument, ref: NodeRef): { kind: NodeKind; props
 
 // ---------------------------------------------------------------- groups & layers
 
-export function uniqueName(existing: string[], wanted: string): string {
+/** Names are addressed as "Group/Layer", so "/" is replaced in names fresnel writes. */
+export function cleanName(name: string): string {
+  return name.replace(/[\/\u0000-\u001f]/g, '-').trim();
+}
+
+export function uniqueName(existing: string[], wanted0: string): string {
+  const wanted = cleanName(wanted0) || 'Untitled';
   if (!existing.includes(wanted)) return wanted;
   let i = 2;
   while (existing.includes(`${wanted} ${i}`)) i++;
   return `${wanted} ${i}`;
 }
 
+/** Icon Composer supports up to 4 groups, and actool rejects icons with more. */
+export const MAX_GROUPS = 4;
+
+function assertGroupRoom(doc: IconDocument) {
+  if (doc.groups.length >= MAX_GROUPS) throw new OpError(`An icon can have up to ${MAX_GROUPS} groups. Add the layer to an existing group instead.`);
+}
+
 export function addGroup(doc: IconDocument, opts: { name?: string; index?: number } = {}): GroupNode {
+  assertGroupRoom(doc);
   const name = uniqueName(doc.groups.map(nameOf), opts.name ?? 'Group');
   const g: GroupNode = { id: newId('g'), props: {}, order: [], layers: [] };
   // Written explicitly: defaults for absent keys are not documented by Apple.
@@ -130,7 +147,8 @@ function clampIndex(i: number, len: number) {
 
 /** Adds an asset under a unique name and returns the stored name. */
 export function addAsset(doc: IconDocument, asset: Asset): string {
-  let name = asset.name.replace(/[\\/]/g, '_');
+  // no path separators, control characters or leading dots (hidden files are skipped when a bundle is read)
+  let name = asset.name.replace(/[\\/\u0000-\u001f:]/g, '_').replace(/^[.\s]+/, '').trim() || 'image';
   const dot = name.lastIndexOf('.');
   const stem = dot > 0 ? name.slice(0, dot) : name;
   const ext = dot > 0 ? name.slice(dot) : '';
@@ -189,6 +207,10 @@ export function setProp(
   if (key === 'fill' && v && typeof v === 'object') v = normalizeFillColors(v as Record<string, unknown>);
   // null removes the attribute, except where null itself is meaningful (blur-material: off)
   if (v === null && key !== 'blur-material') v = undefined;
+  if (key === 'name' && typeof v === 'string' && node.kind !== 'document') {
+    v = cleanName(v);
+    if (!v) throw new OpError('A name is required');
+  }
   if (v !== undefined) {
     const r = validateAttr(node.kind, key, v);
     if (!r.ok) throw new OpError(r.error);
@@ -261,6 +283,8 @@ export function moveNode(doc: IconDocument, ref: NodeRef, index: number, toGroup
 export function duplicateNode(doc: IconDocument, ref: NodeRef): NodeRef {
   if (ref.kind === 'group') {
     const i = doc.groups.findIndex((g) => g.id === ref.id);
+    if (i < 0) throw new OpError('Group not found');
+    assertGroupRoom(doc);
     const src = doc.groups[i]!;
     const copy: GroupNode = structuredClone(src);
     copy.id = newId('g');
@@ -270,7 +294,8 @@ export function duplicateNode(doc: IconDocument, ref: NodeRef): NodeRef {
     return { kind: 'group', id: copy.id };
   }
   if (ref.kind === 'layer') {
-    const f = findLayer(doc, ref.id)!;
+    const f = findLayer(doc, ref.id);
+    if (!f) throw new OpError('Layer not found');
     const copy: LayerNode = structuredClone(f.layer);
     copy.id = newId('l');
     setPropValue(copy.props, 'name', uniqueName(f.group.layers.map(nameOf), `${nameOf(f.layer)} copy`));

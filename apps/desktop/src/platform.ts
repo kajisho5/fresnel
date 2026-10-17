@@ -41,10 +41,14 @@ export const desktopPlatform: Platform & { compileCar(bundlePath: string, outDir
   canSaveInPlace: (location) => !!location,
 
   async open() {
-    // On macOS .icon bundles are packages and show up as files; elsewhere they are folders.
-    const picked = isMac
+    // On macOS .icon bundles are packages (Info.plist imports the type as com.apple.package) and show up
+    // as files; elsewhere they are folders. If the system still treats it as a folder, offer a folder picker.
+    let picked = isMac
       ? await openDialog({ title: 'Open .icon', multiple: false, filters: [{ name: 'Icon Composer icon', extensions: ['icon'] }] })
       : await openDialog({ title: 'Open .icon folder', multiple: false, directory: true });
+    if (!picked && isMac && window.confirm('Choose the .icon as a folder instead?')) {
+      picked = await openDialog({ title: 'Open .icon folder', multiple: false, directory: true });
+    }
     if (!picked || Array.isArray(picked)) return null;
     return load(picked);
   },
@@ -68,9 +72,9 @@ export const desktopPlatform: Platform & { compileCar(bundlePath: string, outDir
   },
 
   async pickImages() {
-    const picked = await openDialog({ title: 'Add layers', multiple: true, filters: [{ name: 'Images', extensions: ['svg', 'png', 'jpg', 'jpeg'] }] });
-    const paths = !picked ? [] : Array.isArray(picked) ? picked : [picked];
-    return Promise.all(paths.map(async (p) => ({ name: baseName(p), bytes: fromB64(await invoke<string>('read_file', { path: p })) })));
+    // the dialog runs in Rust, which reads only what the user picked
+    const picked = await invoke<[string, string][]>('pick_images');
+    return picked.map(([name, b64]) => ({ name, bytes: fromB64(b64) }));
   },
 
   async writeExport(files) {

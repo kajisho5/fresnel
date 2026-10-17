@@ -16,7 +16,21 @@ import {
   type NodeRef,
 } from '@fresnel/core';
 
+import { useUI } from './ui';
+import { t } from '../i18n';
+
 export type FileMap = Record<string, Uint8Array>;
+
+/** Structural equality of the editable tree (assets are immutable and keyed by name). */
+function sameTree(a: IconDocument, b: IconDocument): boolean {
+  if (a === b) return true;
+  if (Object.keys(a.assets).join('\n') !== Object.keys(b.assets).join('\n')) return false;
+  return JSON.stringify([a.props, a.order, a.groups]) === JSON.stringify([b.props, b.order, b.groups]);
+}
+
+/** The document as last loaded or saved; `dirty` means the current doc differs from it. */
+let savedDoc: IconDocument | null = null;
+const isDirty = (doc: IconDocument) => !savedDoc || !sameTree(doc, savedDoc);
 
 /** Copies the editable tree; asset bytes are immutable and shared between history snapshots. */
 export function cloneDoc(d: IconDocument): IconDocument {
@@ -41,17 +55,21 @@ export interface DocState {
   load(doc: IconDocument, opts: { name: string; location?: string | null; extra?: FileMap }): void;
   newDocument(): void;
   markSaved(location?: string | null, name?: string): void;
-  /** generic mutation helper; returns the op's result */
-  mutate<T>(fn: (d: IconDocument) => T): T;
+  /**
+   * Generic mutation helper; returns the op's result, or undefined when the op
+   * failed (the error is shown as a toast and the document is left unchanged).
+   * Mutations that change nothing don't touch the document or the undo history.
+   */
+  mutate<T>(fn: (d: IconDocument) => T): T | undefined;
 
   setProp(ref: NodeRef, key: string, value: unknown, variant?: VariantArg): void;
   resetOverride(ref: NodeRef, key: string, variant: VariantArg): void;
-  addGroup(name?: string, index?: number): string;
-  addLayers(groupId: string | null, assets: Asset[]): string[];
+  addGroup(name?: string, index?: number): string | undefined;
+  addLayers(groupId: string | null, assets: Asset[]): string[] | undefined;
   remove(ref: NodeRef): void;
   move(ref: NodeRef, index: number, toGroupId?: string): void;
-  duplicate(ref: NodeRef): NodeRef;
-  groupLayer(layerId: string): string;
+  duplicate(ref: NodeRef): NodeRef | undefined;
+  groupLayer(layerId: string): string | undefined;
   rename(ref: NodeRef, name: string): void;
 }
 
@@ -66,6 +84,7 @@ export const useDoc = create<DocState>()(
       generation: 0,
 
       load(doc, { name, location = null, extra = {} }) {
+        savedDoc = doc;
         set({ doc, name, location, extra, dirty: false, generation: get().generation + 1 });
         useDoc.temporal.getState().clear();
       },
@@ -73,12 +92,22 @@ export const useDoc = create<DocState>()(
         get().load(createDocument({ background: 'automatic' }), { name: 'Untitled' });
       },
       markSaved(location, name) {
+        savedDoc = get().doc;
         set({ dirty: false, ...(location !== undefined ? { location } : {}), ...(name ? { name } : {}) });
       },
       mutate(fn) {
-        const next = cloneDoc(get().doc);
-        const r = fn(next);
-        set({ doc: next, dirty: true });
+        const cur = get().doc;
+        const next = cloneDoc(cur);
+        let r;
+        try {
+          r = fn(next);
+        } catch (e) {
+          const msg = (e as Error).message || String(e);
+          useUI.getState().toast('error', /up to \d+ groups/.test(msg) ? t('groupLimit') : msg);
+          return undefined;
+        }
+        if (sameTree(cur, next)) return r;
+        set({ doc: next, dirty: isDirty(next) });
         return r;
       },
 
@@ -127,12 +156,16 @@ export const useDoc = create<DocState>()(
 );
 
 export const undo = () => {
-  useDoc.temporal.getState().undo();
-  useDoc.setState({ dirty: true });
+  const t = useDoc.temporal.getState();
+  if (!t.pastStates.length) return;
+  t.undo();
+  useDoc.setState({ dirty: isDirty(useDoc.getState().doc) });
 };
 export const redo = () => {
-  useDoc.temporal.getState().redo();
-  useDoc.setState({ dirty: true });
+  const t = useDoc.temporal.getState();
+  if (!t.futureStates.length) return;
+  t.redo();
+  useDoc.setState({ dirty: isDirty(useDoc.getState().doc) });
 };
 /** Groups continuous edits (slider drags) into one undo step. */
 let gestureStart: IconDocument | null = null;
@@ -147,7 +180,7 @@ export const endGesture = () => {
   gestureStart = null;
   const t = useDoc.temporal;
   t.getState().resume();
-  if (useDoc.getState().doc !== start) {
+  if (!sameTree(useDoc.getState().doc, start)) {
     t.setState((s) => ({ pastStates: [...s.pastStates, { doc: start }].slice(-300), futureStates: [] }));
   }
 };

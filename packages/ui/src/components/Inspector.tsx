@@ -8,6 +8,9 @@ import {
   makeAsset,
   nameOf,
   normalizeColorInput,
+  addAsset,
+  recolor,
+  withAlpha,
   parseColor,
   resolveProp,
   rgbaToHex,
@@ -58,11 +61,6 @@ const alphaOf = (c: unknown) => {
   const p = typeof c === 'string' ? parseColor(c) : null;
   return p ? toRGBA(p).a : 1;
 };
-const withAlpha = (hex: string, a: number) => {
-  const base = normalizeColorInput(hex);
-  const p = parseColor(base)!;
-  return `${p.space}:${[...p.c.slice(0, 3), a].map((x) => x.toFixed(5)).join(',')}`;
-};
 const fmtPct = (v: number) => `${Math.round(v * 100)}%`;
 const parsePct = (s: string) => Number(s.replace('%', '')) / 100;
 
@@ -74,11 +72,13 @@ interface SettingProps<T> {
   attr: string;
   label: string;
   fallback: T;
-  /** renders the control for a value; `set(null)` removes the value */
+  /** renders the control for a value; `set(null)` removes the base value (a variant stores `explicitDefault` instead) */
   control: (value: T, set: (v: unknown) => void) => ReactNode;
+  /** value written to a variant when the control asks to remove (defaults to `fallback`) */
+  explicitDefault?: unknown;
 }
 
-function Setting<T>({ nodeRef, section, attr, label, fallback, control }: SettingProps<T>) {
+function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicitDefault }: SettingProps<T>) {
   const doc = useDoc((s) => s.doc);
   const ui = useUI();
   const props = propsOf(doc, nodeRef);
@@ -94,6 +94,8 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control }: Settin
       useUI.getState().toast('error', (e as Error).message);
     }
   };
+  /** control setter: in a variant, "back to default" must be stored explicitly, or the base value would show through */
+  const setFor = (v: Variant | null) => (val: unknown) => write(v)(val === null && v ? (explicitDefault !== undefined ? explicitDefault : fallback) : val);
   const variants = variantsOf(prop);
   const curAppearance = currentAppearanceKey(ui);
   const varyOptions: { label: string; v: Variant }[] = [
@@ -124,7 +126,7 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control }: Settin
             </button>
           )}
         </div>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">{control(value, write(variant))}</div>
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">{control(value, setFor(variant))}</div>
       </div>
       {scope === 'all' &&
         variants.map((v) => {
@@ -145,7 +147,7 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control }: Settin
                 </button>
                 <span className={cx('truncate font-medium', active ? 'text-override' : 'text-t3')}>{VARIANT_LABEL(v)}</span>
               </div>
-              <div className={cx('flex min-w-0 flex-1 items-center justify-end gap-2', !active && 'opacity-60')}>{control(vv ?? fallback, write(v))}</div>
+              <div className={cx('flex min-w-0 flex-1 items-center justify-end gap-2', !active && 'opacity-60')}>{control(vv ?? fallback, setFor(v))}</div>
             </div>
           );
         })}
@@ -254,8 +256,8 @@ function ColorAlpha({ value, onChange, label }: { value: unknown; onChange: (c: 
   const a = alphaOf(value);
   return (
     <div className="flex min-w-0 items-center gap-1.5">
-      <ColorWell label={label} value={toHex(value)} onChange={(h) => onChange(withAlpha(h, a))} />
-      <NumberField className="w-14 shrink-0" label={`${label} ${t('opacity')}`} value={a} min={0} max={1} step={0.01} format={fmtPct} parse={parsePct} onChange={(v) => onChange(withAlpha(toHex(value), v))} />
+      <ColorWell label={label} value={toHex(value)} onChange={(h) => onChange(recolor(value, h))} />
+      <NumberField className="w-14 shrink-0" label={`${label} ${t('opacity')}`} value={a} min={0} max={1} step={0.01} format={fmtPct} parse={parsePct} onChange={(v) => onChange(withAlpha(value, v))} />
     </div>
   );
 }
@@ -446,7 +448,7 @@ function LayerStyle({ id }: { id: string }) {
   return (
     <>
       <Section title={t('color')} section="color">
-        <Setting nodeRef={ref} section="color" attr="fill" label={t('fill')} fallback={null as unknown} control={(v, set) => <FillControl value={v} set={set} layer />} />
+        <Setting nodeRef={ref} section="color" attr="fill" label={t('fill')} fallback={null as unknown} explicitDefault="automatic" control={(v, set) => <FillControl value={v} set={set} layer />} />
         <Setting nodeRef={ref} section="color" attr="blend-mode" label={t('blendMode')} fallback="normal" control={(v, set) => <BlendSelect value={v} set={set} />} />
         <Setting nodeRef={ref} section="color" attr="opacity" label={t('opacity')} fallback={1} control={(v, set) => <Slider label={t('opacity')} value={v} onChange={set} format={fmtPct} parse={parsePct} defaultValue={1} />} />
       </Section>
@@ -481,15 +483,9 @@ function CompositionSection({ nodeRef }: { nodeRef: NodeRef }) {
                 const f = files[0];
                 if (!f) return;
                 const asset = makeAsset(f.name, f.bytes);
-                let stored = '';
-                useDoc.getState().mutate((d) => {
-                  let name = asset.name;
-                  let i = 2;
-                  while (d.assets[name]) name = asset.name.replace(/(\.[a-z0-9]+)?$/i, ` ${i++}$1`);
-                  d.assets[name] = { ...asset, name };
-                  stored = name;
-                });
-                set(stored);
+                if (asset.kind === 'other' || asset.kind === 'pdf') return useUI.getState().toast('error', t('invalidFile'));
+                const stored = useDoc.getState().mutate((d) => addAsset(d, asset));
+                if (stored) set(stored);
               }}
               options={[...Object.keys(doc.assets).map((k) => ({ value: k, label: k })), '---', { value: '__replace', label: t('replace') }]}
             />

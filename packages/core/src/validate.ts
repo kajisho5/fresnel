@@ -13,6 +13,8 @@ export interface Issue {
   /** "document", "Group", "Group/Layer" */
   target: string;
   ref?: NodeRef;
+  /** structured detail for programmatic use (e.g. V-08: which appearance) */
+  appearance?: 'dark' | 'tinted';
 }
 
 export const RULES: Record<string, { severity: Severity; title: string }> = {
@@ -108,8 +110,14 @@ export function validate(doc: IconDocument): Issue[] {
       }
     }
   }
-  if (!anyDark) push('V-08', "Dark appearance isn't customized. The system will generate it. Review it in Compare.", 'document');
-  if (!anyTinted) push('V-08', "Tinted appearance isn't customized. The system will generate it. Review it in Compare.", 'document');
+  if (!anyDark) {
+    push('V-08', "Dark appearance isn't customized. The system will generate it. Review it in Compare.", 'document');
+    out[out.length - 1]!.appearance = 'dark';
+  }
+  if (!anyTinted) {
+    push('V-08', "Tinted appearance isn't customized. The system will generate it. Review it in Compare.", 'document');
+    out[out.length - 1]!.appearance = 'tinted';
+  }
   return out;
 }
 

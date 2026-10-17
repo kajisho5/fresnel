@@ -35,7 +35,7 @@ export function StatusBar() {
   const actool = useActool();
   const sum = summarizeIssues(issues);
   const platforms = baseValue(doc.props['supported-platforms']) as { squares?: unknown; circles?: string[] } | undefined;
-  const plat = [platforms?.squares !== undefined ? 'Squares: shared' : null, platforms?.circles?.length ? `Circles: ${platforms.circles.join(', ')}` : null].filter(Boolean).join(' · ');
+  const plat = [platforms?.squares !== undefined ? t('squaresShared') : null, platforms?.circles?.length ? t('circlesList', { list: platforms.circles.join(', ') }) : null].filter(Boolean).join(' · ');
   const cs = (baseValue(doc.props['color-space-for-untagged-svg-colors']) as string | undefined) ?? 'display-p3';
 
   return (
@@ -58,7 +58,7 @@ export function StatusBar() {
           </>
         )}
       </button>
-      <span>{actool ? 'actool: available' : t('actoolNA')}</span>
+      <span>{actool ? t('actoolOK') : t('actoolNA')}</span>
       {issuesOpen && (
         <div className="absolute right-4 bottom-8 z-40 max-h-[50vh] w-[420px] overflow-y-auto rounded-[10px] border border-hairline bg-elevated p-2 text-xs text-t1 shadow-[0_12px_40px_rgba(0,0,0,0.45)]">
           {issues.length === 0 && <p className="p-3 text-t2">{t('noIssues')}</p>}

@@ -23,7 +23,8 @@ export interface Platform {
   canSaveInPlace(location: string | null): boolean;
   open(): Promise<Opened | null>;
   save(doc: IconDocument, extra: FileMap, name: string, location: string | null): Promise<{ location: string | null; name: string } | null>;
-  saveAs(doc: IconDocument, extra: FileMap, name: string): Promise<{ location: string | null; name: string } | null>;
+  /** `location` is the current one, if any (the web uses it to keep saving into folders) */
+  saveAs(doc: IconDocument, extra: FileMap, name: string, location?: string | null): Promise<{ location: string | null; name: string } | null>;
   pickImages(): Promise<PickedFile[]>;
   /** Writes exported files. Returns a human-readable destination or null if cancelled. */
   writeExport(files: FileMap, suggestedName: string): Promise<string | null>;
@@ -41,6 +42,11 @@ export interface Platform {
 type DirHandle = FileSystemDirectoryHandle & {
   values(): AsyncIterable<FileSystemDirectoryHandle | FileSystemFileHandle>;
 };
+
+/** A name usable as a file or folder name on every OS (no separators, reserved characters or leading dots). */
+export function safeFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').replace(/^[.\s]+|[.\s]+$/g, '') || 'Untitled';
+}
 
 const handles = new Map<string, DirHandle>();
 let handleSeq = 0;
@@ -145,7 +151,23 @@ export const webPlatform: Platform = {
     return this.saveAs(doc, extra, name);
   },
 
-  async saveAs(doc, extra, name) {
+  async saveAs(doc, extra, name0, location) {
+    const name = safeFileName(name0);
+    const w = window as unknown as { showDirectoryPicker?: (o?: object) => Promise<DirHandle> };
+    // a document opened from a folder keeps being saved as a folder: pick where the new .icon goes
+    if (location && handles.has(location) && w.showDirectoryPicker) {
+      try {
+        const parent = await w.showDirectoryPicker({ id: 'fresnel-save', mode: 'readwrite' });
+        const dir = (await parent.getDirectoryHandle(`${name}.icon`, { create: true })) as DirHandle;
+        await writeDir(dir, writeBundle(doc, extra), new Set(Object.keys(doc.assets)));
+        const key = `fsa:${++handleSeq}`;
+        handles.set(key, dir);
+        return { location: key, name };
+      } catch (e) {
+        if ((e as DOMException).name === 'AbortError') return null;
+        throw e;
+      }
+    }
     download(zipBundle(doc, name, extra), `${name}.icon.zip`, 'application/zip');
     return { location: null, name };
   },
@@ -156,7 +178,7 @@ export const webPlatform: Platform = {
   },
 
   async writeExport(files, suggestedName) {
-    const filename = `${suggestedName}-export.zip`;
+    const filename = `${safeFileName(suggestedName)}-export.zip`;
     download(zipFiles(files), filename, 'application/zip');
     return filename;
   },

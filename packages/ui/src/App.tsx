@@ -3,8 +3,8 @@ import { findGroup, findLayer } from '@fresnel/core';
 import { X } from 'lucide-react';
 import { useDoc, undo, redo } from './store/doc';
 import { useUI } from './store/ui';
-import { useLang } from './i18n';
-import { getPlatform, handleDrop, importLayers, newIcon, openIcon, save, setPlatform } from './actions';
+import { t as tr, useLang } from './i18n';
+import { commitPendingEdit, getPlatform, handleDrop, importLayers, newIcon, openIcon, save, setPlatform } from './actions';
 import { arrange, copyStyle, deleteSelection, duplicateSelection, groupSelection, nudge, pasteStyle, toggleVisible, ungroupSelection } from './commands';
 import { MenuHost, useMenu } from './components/Menu';
 import { initTheme } from './theme';
@@ -24,7 +24,11 @@ function useShortcuts() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       const target = e.target as HTMLElement;
-      const typing = !!target.closest('input, textarea, select, [contenteditable]');
+      // text entry only: sliders, checkboxes and color wells keep the global shortcuts (⌘Z after a slider drag)
+      const typing = !!target.closest(
+        'input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]):not([type=button]), textarea, [contenteditable]:not([contenteditable=false])',
+      );
+      const onControl = !!target.closest('button, input, select, a, [role=switch], [role=menuitem]');
       const ui = useUI.getState();
       if (e.altKey && !mod && !typing && /^Digit[1-3]$/.test(e.code)) {
         e.preventDefault();
@@ -36,11 +40,11 @@ function useShortcuts() {
         if (e.key === 'Escape') {
           ui.select({ kind: 'document' });
         } else if (e.key === 'Delete' || e.key === 'Backspace') {
-          if (ui.selection.kind !== 'document' && !target.closest('[role=tree]')) {
+          if (ui.selection.kind !== 'document' && !onControl && !target.closest('[role=tree]')) {
             e.preventDefault();
             deleteSelection();
           }
-        } else if (e.key.startsWith('Arrow') && ui.selection.kind !== 'document' && !target.closest('[role=tree], [role=slider], [role=radiogroup]')) {
+        } else if (e.key.startsWith('Arrow') && ui.selection.kind !== 'document' && !target.closest('[role=tree], [role=slider], [role=radiogroup], input, select')) {
           e.preventDefault();
           const d = e.shiftKey ? 10 : 1;
           nudge(e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0, e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0);
@@ -66,6 +70,7 @@ function useShortcuts() {
         newIcon();
       } else if (k === 'e' && e.shiftKey) {
         e.preventDefault();
+        commitPendingEdit();
         ui.set({ exportOpen: true });
       } else if (k === 'i' && e.shiftKey) {
         e.preventDefault();
@@ -132,7 +137,7 @@ function useWatch() {
     if (!location || !p.watch || !p.reload) return;
     return p.watch(location, async () => {
       if (useDoc.getState().dirty) {
-        useUI.getState().toast('info', 'The file changed on disk. Save to keep your version, or reopen it.');
+        useUI.getState().toast('info', tr('fileChangedOnDisk'));
         return;
       }
       const r = await p.reload!(location);
@@ -156,7 +161,7 @@ function Toasts() {
           )}
         >
           <span className="text-t1">{t.text}</span>
-          <button type="button" aria-label="Dismiss" onClick={() => dismiss(t.id)} className="text-t3 hover:text-t1">
+          <button type="button" aria-label={tr('dismiss')} onClick={() => dismiss(t.id)} className="text-t3 hover:text-t1">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>

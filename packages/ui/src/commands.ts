@@ -1,7 +1,7 @@
 /** Editing commands shared by menus, context menus and keyboard shortcuts. */
-import { findGroup, findLayer, nameOf, resolveProp, type NodeRef, type Position, type PropMap } from '@fresnel/core';
+import { findGroup, findLayer, hasVariant, nameOf, resolveProp, type Idiom, type NodeRef, type Position, type PropMap, type Variant } from '@fresnel/core';
 import { useDoc } from './store/doc';
-import { currentAppearance, useUI } from './store/ui';
+import { currentAppearance, currentAppearanceKey, useUI } from './store/ui';
 import { t } from './i18n';
 import { create } from 'zustand';
 
@@ -37,7 +37,8 @@ export function deleteSelection(confirmFirst = false) {
 export function duplicateSelection() {
   const s = sel();
   if (s.kind === 'document') return;
-  useUI.getState().select(useDoc.getState().duplicate(s));
+  const r = useDoc.getState().duplicate(s);
+  if (r) useUI.getState().select(r);
 }
 
 /** Moves the selection one step toward the front (dir = -1) or back (dir = +1). */
@@ -60,7 +61,10 @@ export function arrange(dir: -1 | 1) {
 
 export function groupSelection() {
   const s = sel();
-  if (s.kind === 'layer') useUI.getState().select({ kind: 'group', id: useDoc.getState().groupLayer(s.id) });
+  if (s.kind === 'layer') {
+    const id = useDoc.getState().groupLayer(s.id);
+    if (id) useUI.getState().select({ kind: 'group', id });
+  }
 }
 
 /** Moves a group's layers into the group above it (or a new neighbour) and removes the group. */
@@ -89,8 +93,18 @@ export function toggleVisible(ref: NodeRef = sel()) {
   const node = ref.kind === 'group' ? findGroup(doc, ref.id) : findLayer(doc, ref.id)?.layer;
   if (!node) return;
   const ui = useUI.getState();
-  const hidden = resolveProp<boolean>(node.props.hidden, { appearance: currentAppearance(ui), idiom: ui.platform }, false);
-  useDoc.getState().setProp(ref, 'hidden', hidden ? null : true);
+  const prop = node.props.hidden;
+  const hidden = resolveProp<boolean>(prop, { appearance: currentAppearance(ui), idiom: ui.platform }, false);
+  // write where the shown value comes from: the most specific matching variant, else the base
+  const key = currentAppearanceKey(ui);
+  const idiom = ui.platform as Idiom;
+  const candidates: Variant[] = [
+    ...(key ? [{ appearance: key, idiom }, { appearance: key }] : []),
+    { idiom },
+    ...(idiom !== 'watchOS' ? [{ idiom: 'square' as Idiom }] : []),
+  ];
+  const from = ui.sectionScope.composition === 'variant' ? { idiom } : candidates.find((v) => hasVariant(prop, v));
+  useDoc.getState().setProp(ref, 'hidden', from ? !hidden : hidden ? null : true, from);
 }
 
 /** Arrow-key nudge in points. */

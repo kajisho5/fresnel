@@ -27,7 +27,10 @@ function appMenu(): MenuItem[] {
     { label: t('undo'), shortcut: `${MOD}Z`, onSelect: undo },
     { label: t('redo'), shortcut: `⇧${MOD}Z`, onSelect: redo },
     { label: t('newImage'), shortcut: `⇧${MOD}I`, onSelect: importLayers },
-    { label: t('newGroup'), onSelect: () => useUI.getState().select({ kind: 'group', id: useDoc.getState().addGroup() }) },
+    { label: t('newGroup'), onSelect: () => {
+        const id = useDoc.getState().addGroup();
+        if (id) useUI.getState().select({ kind: 'group', id });
+      } },
     { label: t('duplicate'), shortcut: `${MOD}D`, onSelect: duplicateSelection },
     { label: t('remove'), shortcut: '⌫', onSelect: () => deleteSelection() },
     '---',
