@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { beginGesture, endGesture } from '../store/doc';
 import { t } from '../i18n';
@@ -61,6 +61,9 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
   );
 }
 
+/** True while the inspector shows a value that differs between the selected items. */
+export const MixedCtx = createContext(false);
+
 /** Numeric text field: ↑↓ ±step, ⇧ ×10, ⌥ ×0.1. Commits on Enter / blur. */
 export function NumberField({
   value,
@@ -73,9 +76,12 @@ export function NumberField({
   label,
   prefix,
   className,
+  mixed: mixedProp,
 }: {
   value: number;
   onChange: (v: number) => void;
+  /** show "—" (values differ between selected items); defaults to the surrounding MixedCtx */
+  mixed?: boolean;
   min?: number;
   max?: number;
   step?: number;
@@ -85,13 +91,16 @@ export function NumberField({
   prefix?: string;
   className?: string;
 }) {
-  const [text, setText] = useState(format(value));
+  const mixedCtx = useContext(MixedCtx);
+  const mixed = mixedProp ?? mixedCtx;
+  const shown = (v: number) => (mixed ? '—' : format(v));
+  const [text, setText] = useState(shown(value));
   const focused = useRef(false);
   /** text shown when the field was focused: leaving it unchanged commits nothing */
   const startText = useRef<string | null>(null);
   useEffect(() => {
-    if (!focused.current) setText(format(value));
-  }, [value, format]);
+    if (!focused.current) setText(shown(value));
+  }, [value, format, mixed]); // eslint-disable-line react-hooks/exhaustive-deps
   /** Accepts plain numbers and arithmetic like "35*3", "*2", "+10" (evaluated in display units). */
   const parseInput = (raw: string): number => {
     const direct = parse(raw);
@@ -106,7 +115,7 @@ export function NumberField({
       return;
     }
     const c = Math.min(max, Math.max(min, v));
-    if (c !== value) onChange(c);
+    if (c !== value || mixed) onChange(c);
     setText(format(c));
     startText.current = format(c);
   };
@@ -119,14 +128,18 @@ export function NumberField({
         value={text}
         onFocus={(e) => {
           focused.current = true;
-          startText.current = e.currentTarget.value;
+          if (mixed) {
+            // start editing from an empty field rather than the "—" placeholder
+            setText('');
+            startText.current = '';
+          } else startText.current = e.currentTarget.value;
           e.currentTarget.select();
         }}
         onBlur={() => {
           focused.current = false;
           const unchanged = text === startText.current || text.trim() === '';
           startText.current = null;
-          if (unchanged) setText(format(value));
+          if (unchanged) setText(shown(value));
           else commit(parseInput(text));
         }}
         onChange={(e) => setText(e.target.value)}
@@ -216,14 +229,20 @@ export function Select<T extends string>({
   label: string;
   className?: string;
 }) {
+  const mixed = useContext(MixedCtx);
   return (
     <div className={cx('relative h-[22px] min-w-0 flex-1', className)}>
       <select
         aria-label={label}
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
-        className="h-full w-full appearance-none rounded-[5px] bg-control pr-6 pl-2.5 text-xs outline-none"
+        value={mixed ? '__mixed' : value}
+        onChange={(e) => e.target.value !== '__mixed' && onChange(e.target.value as T)}
+        className={cx('h-full w-full appearance-none rounded-[5px] bg-control pr-6 pl-2.5 text-xs outline-none', mixed && 'text-t3')}
       >
+        {mixed && (
+          <option value="__mixed" disabled hidden>
+            {t('mixed')}
+          </option>
+        )}
         {options.map((o, i) =>
           o === '---' ? (
             <option key={`sep${i}`} disabled>

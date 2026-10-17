@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { findGroup, findLayer } from '@fresnel/core';
 import { X } from 'lucide-react';
 import { useDoc, undo, redo } from './store/doc';
-import { useUI } from './store/ui';
+import { selectedRefs, selectionOf, useUI } from './store/ui';
 import { t as tr, useLang } from './i18n';
 import { commitPendingEdit, getPlatform, handleDrop, importLayers, newIcon, openIcon, save, setPlatform } from './actions';
-import { arrange, copyStyle, deleteSelection, duplicateSelection, groupSelection, nudge, pasteStyle, toggleVisible, ungroupSelection } from './commands';
+import { arrange, copyStyle, selectAllLayers, deleteSelection, duplicateSelection, groupSelection, nudge, pasteStyle, toggleVisible, ungroupSelection } from './commands';
 import { MenuHost, useMenu } from './components/Menu';
 import { initTheme } from './theme';
 import type { Platform } from './platform';
@@ -52,7 +52,10 @@ function useShortcuts() {
         return;
       }
       const k = e.key.toLowerCase();
-      if (k === 'z' && !typing) {
+      if (k === 'a' && !typing && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        selectAllLayers();
+      } else if (k === 'z' && !typing) {
         e.preventDefault();
         if (e.shiftKey) redo();
         else undo();
@@ -120,10 +123,10 @@ function useSelectionGuard() {
     () =>
       useDoc.subscribe((st) => {
         const ui = useUI.getState();
-        const s = ui.selection;
-        if (s.kind === 'document') return;
-        const ok = s.kind === 'group' ? !!findGroup(st.doc, s.id) : !!findLayer(st.doc, s.id);
-        if (!ok) ui.select({ kind: 'document' });
+        const items = selectedRefs(ui.selection);
+        if (!items.length) return;
+        const alive = items.filter((r) => (r.kind === 'group' ? !!findGroup(st.doc, r.id) : !!findLayer(st.doc, r.id)));
+        if (alive.length !== items.length) ui.select(selectionOf(alive));
       }),
     [],
   );

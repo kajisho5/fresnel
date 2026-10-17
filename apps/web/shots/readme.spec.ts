@@ -71,3 +71,12 @@ test('japanese light', async ({ page }) => {
   await settle(page);
   await page.screenshot({ path: join(OUT, 'japanese-light.png') });
 });
+
+test('multi select', async ({ page }) => {
+  await open(page);
+  await page.getByRole('treeitem', { name: /Wave Front/ }).click();
+  await page.getByRole('treeitem', { name: /Wave Back/ }).click({ modifiers: ['Control'] });
+  await page.getByRole('treeitem', { name: /Sun/ }).nth(1).click({ modifiers: ['Control'] });
+  await settle(page);
+  await page.screenshot({ path: join(OUT, 'multi-select.png') });
+});

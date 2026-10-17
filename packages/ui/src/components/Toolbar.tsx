@@ -8,6 +8,7 @@ import { importLayers, newIcon, openIcon, openSample, save } from '../actions';
 import { arrange, copyStyle, deleteSelection, duplicateSelection, groupSelection, pasteStyle, toggleVisible, ungroupSelection } from '../commands';
 import { getTheme, setTheme } from '../theme';
 import { IconButton, cx } from './controls';
+import { alignMenuItems } from './AlignBar';
 import { useMenu, type MenuItem } from './Menu';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -39,6 +40,7 @@ function appMenu(): MenuItem[] {
     { label: t('groupSelection'), shortcut: `${MOD}G`, onSelect: groupSelection },
     { label: t('ungroup'), shortcut: `⇧${MOD}G`, onSelect: ungroupSelection },
     { label: t('toggleVisible'), shortcut: `⇧${MOD}H`, onSelect: () => toggleVisible() },
+    ...alignMenuItems(),
     { label: t('copyStyle'), shortcut: `⌥${MOD}C`, onSelect: copyStyle },
     { label: t('pasteStyle'), shortcut: `⌥${MOD}V`, onSelect: pasteStyle },
     '---',

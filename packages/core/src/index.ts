@@ -7,3 +7,4 @@ export * from './bundle';
 export * from './ops';
 export * from './validate';
 export * from './export';
+export * from './arrange';

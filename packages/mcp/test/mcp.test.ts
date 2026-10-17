@@ -39,6 +39,7 @@ describe('fresnel-mcp over stdio', () => {
     expect(tools).toEqual([
       'icon_add_group',
       'icon_add_layer',
+      'icon_align',
       'icon_create',
       'icon_export',
       'icon_inspect',
@@ -143,5 +144,14 @@ describe('fresnel-mcp over stdio', () => {
     r = await call('icon_add_layer', { path: 'Guard', group: 'Shape', svg: STAR });
     expect(r.isError).toBe(true);
     expect((await readdir(outside)).sort()).toEqual(['precious.txt']);
+  });
+  it('aligns layers to each other', async () => {
+    await call('icon_create', { path: 'Align.icon' });
+    const small = (x: number) => `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#fff"/></svg>`.replace('#fff', x ? '#fff' : '#000');
+    await call('icon_add_layer', { path: 'Align', group: 'G', svg: small(1), name: 'A', props: { position: { scale: 1, 'translation-in-points': [-300, 0] } } });
+    await call('icon_add_layer', { path: 'Align', group: 'G', svg: small(0), name: 'B', props: { position: { scale: 1, 'translation-in-points': [200, 100] } } });
+    const r = json(await call('icon_align', { path: 'Align', targets: ['G/A', 'G/B'], how: 'left' }));
+    expect(r.moved).toBe(1);
+    expect(r.positions[0].box.x).toBeCloseTo(r.positions[1].box.x);
   });
 });

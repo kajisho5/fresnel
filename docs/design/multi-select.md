@@ -1,6 +1,6 @@
 # 設計書：複数選択・整列・分布（v0.2 候補）
 
-状態：**承認待ち**（Step 1 設計書・Step 2 SVG デザイン）。デザインは [`design/04-multi-select.svg`](../../design/04-multi-select.svg)。
+状態：**実装済み**（2026-10-17 承認、Step 3 完了）。デザインは [`design/04-multi-select.svg`](../../design/04-multi-select.svg)。
 
 ## 1. 目的と根拠
 

@@ -63,6 +63,7 @@ Apple's Icon Composer makes layered Liquid Glass icons, but it only runs on a Ma
 | **Liquid Glass** | Per group: mode (Individual / Combined), specular highlights (Off / Automatic / Inside / Outside), blur, translucency, shadow (Neutral / Chromatic), and refraction set on a 2D strength × depth pad. Per layer: glass, fill, blend mode and opacity. |
 | **Appearances** | Default, Dark and Mono. Mono can be clear or tinted, light or dark, with a tint color you choose. Compare shows all six system appearances side by side. |
 | **Variants** | Override any value for Dark, Mono, iOS, macOS or watchOS. Use "Vary for…" on a single setting, or a section's "Applies to" popup for a whole section. Overrides are listed under the base value, and you remove each with one click. |
+| **Multiple selection** | ⌘-click, ⇧-click in the sidebar, or drag a marquee on the canvas. Edit, move, hide, group or delete several items at once; values that differ show as "Mixed". **Align** (left / center / right / top / middle / bottom) and **Distribute** to the selection or the canvas. |
 | **Canvas** | Drag layers and they snap to the center. Nudge with the arrow keys. Type math into number fields (`*2`, `35*3`). Preview on wallpapers or your own image, with grids, every system size from 16 to 1024 px, zoom, and an Effects switch. |
 | **Exports** | `.icon`, `.icns`, `AppIcon.appiconset` (App Store-ready, with Dark and Tinted) and PNG sets. On a Mac with Xcode 26, also `Assets.car`. |
 | **Checks** | Ten checks based on Apple's HIG run as you work. See [Icon checks](#icon-checks). |
@@ -130,6 +131,7 @@ On Windows and Linux, use Ctrl instead of ⌘.
 | Default / Dark / Mono | ⌥1 / ⌥2 / ⌥3 | | Copy / Paste style | ⌥⌘C / ⌥⌘V |
 | Zoom in / out / reset | ⌘＋ / ⌘− / ⌘0 | | Move selection | Arrow keys (⇧ = 10 pt) |
 | Deselect | Esc | | Constrain a drag | Hold ⇧ |
+| Select all layers | ⌘A | | Add to / remove from selection | ⌘-click (⇧-click: range in the sidebar) |
 
 In number fields, ↑ and ↓ change the value by one step (⇧ ×10, ⌥ ×0.1). You can also type arithmetic such as `*2`, `+10` or `35*3`. Double-click a slider to reset it.
 
@@ -198,6 +200,7 @@ Then ask, for example: *"Design a Liquid Glass icon for a habit-tracking app cal
 | `icon_add_group` / `icon_add_layer` | Adds a group, or a layer from inline SVG, a file or PNG data |
 | `icon_set` | Sets attributes for all appearances, or a variant with `appearance` (`dark`, `tinted`) and/or `platform` (`iOS`, `macOS`, `watchOS`) |
 | `icon_move` / `icon_remove` | Reorders or deletes groups and layers |
+| `icon_align` | Aligns or distributes groups or layers (to each other or to the canvas) |
 | `icon_validate` | Runs the [icon checks](#icon-checks) |
 | `icon_render` / `icon_render_sheet` | Returns a PNG of one appearance or of all six, as an image the model can see |
 | `icon_export` | Writes `.icon`, `.icns`, `AppIcon.appiconset` and PNG sets |
@@ -271,7 +274,6 @@ More in the [user guide](docs/USER_GUIDE.md#troubleshooting).
 
 ## Roadmap
 
-- Multiple selection, Align and Distribute ([design](docs/design/multi-select.md), awaiting review)
 - A WebGL refraction preview
 - Recent files
 - visionOS and tvOS icons

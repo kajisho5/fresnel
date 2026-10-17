@@ -228,3 +228,66 @@ test('a variant can store the default value', async ({ page }) => {
   await expect(page.getByRole('combobox', { name: 'Blend Mode' }).first()).toHaveValue('multiply');
   await expect(page.getByRole('button', { name: 'Remove variant Dark' })).toBeVisible();
 });
+
+async function addStar(page: Page) {
+  await page.getByRole('treeitem', { name: /Sun/ }).first().click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'New Image…' }).click();
+  await (await chooser).setFiles({ name: 'star.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(STAR) });
+  await expect(page.getByRole('treeitem', { name: /star/ })).toBeVisible();
+}
+
+test('selects several layers, shows mixed values and aligns them', async ({ page }) => {
+  await open(page);
+  const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+  await addStar(page); // 400 pt star, centered, selected
+  await page.getByRole('treeitem', { name: /Wave Back/ }).click({ modifiers: [mod] });
+  await expect(page.getByText('2 Layers')).toBeVisible();
+  await expect(page.getByTestId('selection-union')).toBeVisible();
+  // opacity differs (1 vs 0.55): the field shows a dash
+  await expect(field(page, 'Opacity')).toHaveValue('—');
+  await page.getByRole('button', { name: 'Align: Left Edges' }).click();
+  await page.getByRole('treeitem', { name: /star/ }).click();
+  await expect(field(page, 'X')).toHaveValue('-312');
+  await page.getByRole('button', { name: /^Undo/ }).click();
+  await expect(field(page, 'X')).toHaveValue('0');
+  // editing a mixed field sets every selected layer
+  await page.getByRole('treeitem', { name: /Wave Back/ }).click({ modifiers: [mod] });
+  await field(page, 'Opacity').fill('40');
+  await field(page, 'Opacity').press('Enter');
+  await page.getByRole('treeitem', { name: /Wave Back/ }).click();
+  await expect(field(page, 'Opacity')).toHaveValue('40%');
+  await page.getByRole('treeitem', { name: /star/ }).click();
+  await expect(field(page, 'Opacity')).toHaveValue('40%');
+});
+
+test('marquee selects layers and ⌘G groups them', async ({ page }) => {
+  await open(page);
+  const stage = (await page.getByTestId('stage').boundingBox())!;
+  // drag from the empty top-left corner of the stage across the icon
+  await page.mouse.move(stage.x + 8, stage.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2, { steps: 8 });
+  await expect(page.getByTestId('marquee')).toBeVisible();
+  await page.mouse.up();
+  await expect(page.getByText(/\d Layers/)).toBeVisible();
+  await page.locator('body').press(process.platform === 'darwin' ? 'Meta+g' : 'Control+g');
+  await expect(page.getByText(/3 groups/)).toBeVisible();
+});
+
+test('context menu Align submenu aligns one layer to the canvas', async ({ page }) => {
+  await open(page);
+  await addStar(page);
+  await page.getByRole('treeitem', { name: /star/ }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Align' }).hover();
+  await page.getByRole('menuitem', { name: 'Top Edges' }).click();
+  await expect(field(page, 'Y')).toHaveValue('-312');
+  // keyboard: open the submenu with → and pick with Enter
+  await page.getByRole('treeitem', { name: /star/ }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Align' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('menuitem', { name: 'Left Edges' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(field(page, 'X')).toHaveValue('-312');
+});

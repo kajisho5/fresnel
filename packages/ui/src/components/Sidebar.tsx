@@ -16,7 +16,8 @@ import {
   type LayerNode,
 } from '@fresnel/core';
 import { useDoc } from '../store/doc';
-import { currentAppearance, useUI, type Selection } from '../store/ui';
+import { currentAppearance, isSelected, selectedRefs, selectionOf, useUI, type ItemRef, type Selection } from '../store/ui';
+import { alignMenuItems } from './AlignBar';
 import { t, useLang } from '../i18n';
 import { importLayers } from '../actions';
 import { arrange, canPasteStyle, copyStyle, deleteSelection, duplicateSelection, groupSelection, pasteStyle, toggleVisible, ungroupSelection, useRename } from '../commands';
@@ -38,14 +39,19 @@ export function nodeMenu(kind: 'group' | 'layer' | 'document'): MenuItem[] {
       } },
     ];
   const s = useUI.getState().selection;
+  const multi = s.kind === 'multi';
   return [
-    { label: t('rename'), onSelect: () => s.kind !== 'document' && useRename.getState().set(s.id) },
+    { label: t('rename'), disabled: multi, onSelect: () => (s.kind === 'group' || s.kind === 'layer') && useRename.getState().set(s.id) },
     { label: t('duplicate'), shortcut: `${M}D`, onSelect: duplicateSelection },
     '---',
     { label: kind === 'group' ? t('bringGroupForward') : t('bringLayerForward'), shortcut: `${M}]`, onSelect: () => arrange(-1) },
     { label: kind === 'group' ? t('sendGroupBackward') : t('sendLayerBackward'), shortcut: `${M}[`, onSelect: () => arrange(1) },
-    ...(kind === 'layer' ? [{ label: t('groupSelection'), shortcut: `${M}G`, onSelect: groupSelection } as MenuItem] : [{ label: t('ungroup'), shortcut: `⇧${M}G`, onSelect: ungroupSelection } as MenuItem]),
+    ...(kind === 'layer'
+      ? [{ label: multi ? t('groupLayers') : t('groupSelection'), shortcut: `${M}G`, onSelect: groupSelection } as MenuItem]
+      : [{ label: t('ungroup'), shortcut: `⇧${M}G`, onSelect: ungroupSelection } as MenuItem]),
     { label: t('toggleVisible'), shortcut: `⇧${M}H`, onSelect: () => toggleVisible() },
+    '---',
+    ...alignMenuItems(),
     '---',
     { label: t('copyStyle'), shortcut: `⌥${M}C`, onSelect: copyStyle },
     { label: t('pasteStyle'), shortcut: `⌥${M}V`, onSelect: pasteStyle, disabled: !canPasteStyle() },
@@ -118,7 +124,20 @@ export function Sidebar() {
   const idiom = useUI((u) => u.platform) as Idiom;
   const flat = useMemo(() => flatten(doc, collapsed, { appearance, idiom }), [doc, collapsed, appearance, idiom]);
   useEffect(() => pruneAssetUrls(doc), [doc]);
-  const isSel = (s: Selection) => selection.kind === s.kind && (s.kind === 'document' || ('id' in selection && selection.id === (s as { id: string }).id));
+  const isSel = (s: Selection) => (s.kind === 'document' ? selection.kind === 'document' : s.kind !== 'multi' && isSelected(selection, s));
+  /** click: select; ⌘ / Ctrl-click: add or remove; ⇧-click: range of the same kind from the last picked row */
+  const pick = (e: React.MouseEvent, r: ItemRef) => {
+    if (e.metaKey || e.ctrlKey) return ui.toggleSelect(r);
+    if (e.shiftKey) {
+      const cur = selectedRefs(selection);
+      const anchorId = selection.kind === 'multi' ? selection.primary : cur[cur.length - 1]?.id;
+      const rows = flat.filter((x) => x.kind === r.kind).map((x) => x.sel as ItemRef);
+      const a = rows.findIndex((x) => x.id === anchorId);
+      const b = rows.findIndex((x) => x.id === r.id);
+      if (a >= 0 && b >= 0 && cur[0]?.kind === r.kind) return select(selectionOf(rows.slice(Math.min(a, b), Math.max(a, b) + 1), r.id));
+    }
+    select(r);
+  };
   const layerCount = doc.groups.reduce((a, g) => a + g.layers.length, 0);
   const bgFill = resolveProp<Fill>(doc.props.fill, { appearance }, 'automatic');
 
@@ -151,11 +170,12 @@ export function Sidebar() {
     }
   };
 
-  const toggleHidden = (ref: Selection) => toggleVisible(ref);
+  const toggleHidden = (ref: ItemRef) => toggleVisible(ref);
   const openMenu = (e: React.MouseEvent, r: Selection) => {
     e.preventDefault();
-    select(r);
-    useMenu.getState().show(e.clientX, e.clientY, nodeMenu(r.kind));
+    // right-clicking an item that's part of the selection keeps the whole selection
+    if (!(r.kind !== 'document' && r.kind !== 'multi' && isSelected(selection, r))) select(r);
+    useMenu.getState().show(e.clientX, e.clientY, nodeMenu(r.kind === 'multi' ? r.of : r.kind));
   };
 
   const onKey = (e: KeyboardEvent) => {
@@ -169,8 +189,8 @@ export function Sidebar() {
       removeSelected();
     } else if (e.key === ' ' && selection.kind !== 'document') {
       e.preventDefault();
-      toggleHidden(selection);
-    } else if (e.key === 'Enter' && selection.kind !== 'document') {
+      toggleVisible();
+    } else if (e.key === 'Enter' && (selection.kind === 'group' || selection.kind === 'layer')) {
       e.preventDefault();
       setRenaming(selection.id);
     } else if (e.key === 'ArrowLeft' && selection.kind === 'group') {
@@ -214,7 +234,7 @@ export function Sidebar() {
                 level={r.kind === 'group' ? 1 : 2}
                 selected={isSel(r.sel)}
                 dropping={dropTarget?.id === sel.id ? (dropTarget.after && r.kind === 'layer' ? 'after' : dropTarget.after && r.kind === 'group' && collapsed.has(sel.id) ? 'after' : dropTarget.after ? 'into' : 'before') : undefined}
-                onClick={() => select(r.sel)}
+                onClick={(e) => pick(e, sel)}
                 onDoubleClick={() => setRenaming(sel.id)}
                 onContextMenu={(e) => openMenu(e, r.sel)}
                 draggable
@@ -262,7 +282,7 @@ export function Sidebar() {
                 }}
                 badge={r.glass ? t('glass') : undefined}
                 hidden={r.hidden}
-                onToggleHidden={() => toggleHidden(r.sel)}
+                onToggleHidden={() => toggleHidden(sel)}
               />
             );
           })}
@@ -351,7 +371,7 @@ function Row({
   badge?: string | undefined;
   hidden?: boolean;
   expander?: React.ReactNode;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent) => void;
   onDoubleClick?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   onToggleHidden?: () => void;

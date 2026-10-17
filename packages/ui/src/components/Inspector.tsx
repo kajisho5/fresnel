@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import { FileText, Paintbrush, Plus, X, ArrowUpDown } from 'lucide-react';
 import {
   BLEND_MODES,
@@ -8,6 +8,7 @@ import {
   makeAsset,
   nameOf,
   normalizeColorInput,
+  setProp,
   squarePlatforms,
   addAsset,
   recolor,
@@ -27,11 +28,12 @@ import {
   type Variant,
 } from '@fresnel/core';
 import { useDoc } from '../store/doc';
-import { APPEARANCE_MODE_LABEL, VARIANT_LABEL, currentAppearance, currentAppearanceKey, useUI, type SectionKey } from '../store/ui';
+import { APPEARANCE_MODE_LABEL, VARIANT_LABEL, currentAppearance, currentAppearanceKey, selectedRefs, useUI, type SectionKey } from '../store/ui';
 import { t, useLang } from '../i18n';
 import { getPlatform } from '../actions';
 import { useRename } from '../commands';
-import { ColorWell, NumberField, Segmented, Select, Slider, Toggle, cx } from './controls';
+import { ColorWell, MixedCtx, NumberField, Segmented, Select, Slider, Toggle, cx } from './controls';
+import { AlignRow } from './AlignBar';
 import { useMenu } from './Menu';
 import { editIdiom, idiomLabel } from '../lib/idiom';
 
@@ -63,6 +65,9 @@ const alphaOf = (c: unknown) => {
   const p = typeof c === 'string' ? parseColor(c) : null;
   return p ? toRGBA(p).a : 1;
 };
+/** The items the inspector edits (several when the selection has more than one). */
+const TargetsCtx = createContext<NodeRef[] | null>(null);
+
 const fmtPct = (v: number) => `${Math.round(v * 100)}%`;
 const parsePct = (s: string) => Number(s.replace('%', '')) / 100;
 
@@ -85,18 +90,34 @@ interface SettingProps<T> {
 function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicitDefault, wide }: SettingProps<T>) {
   const doc = useDoc((s) => s.doc);
   const ui = useUI();
-  const props = propsOf(doc, nodeRef);
+  // with several items selected, every setting reads and writes all of them (the first one is shown)
+  const targets = useContext(TargetsCtx) ?? [nodeRef];
+  const props = propsOf(doc, targets[0]!);
   const prop = props?.[attr];
   const scope = ui.sectionScope[section];
   const variant = scope === 'variant' ? sectionVariant(section) : null;
   const ctx = { appearance: currentAppearance(ui), idiom: ui.platform as Idiom };
-  const value = (variant ? resolveProp<T>(prop, ctx, fallback) : ((baseValue(prop) as T | undefined) ?? fallback)) ?? fallback;
-  const write = (v: Variant | null) => (val: unknown) => {
-    try {
-      useDoc.getState().setProp(nodeRef, attr, val, v ?? undefined);
-    } catch (e) {
-      useUI.getState().toast('error', (e as Error).message);
+  const shownIn = (d: IconDocument, r: NodeRef, v: Variant | null): T => {
+    const p = propsOf(d, r)?.[attr];
+    if (v) {
+      const exact = p?.specs?.find((e) => e.appearance === v.appearance && e.idiom === v.idiom);
+      if (exact) return exact.value as T;
+      return (resolveProp<T>(p, ctx, fallback) ?? fallback) as T;
     }
+    return ((baseValue(p) as T | undefined) ?? fallback) as T;
+  };
+  const value = variant ? ((resolveProp<T>(prop, ctx, fallback) ?? fallback) as T) : shownIn(doc, targets[0]!, null);
+  const mixed =
+    targets.length > 1 &&
+    targets.some((r) => JSON.stringify(variant ? resolveProp<T>(propsOf(doc, r)?.[attr], ctx, fallback) : shownIn(doc, r, null)) !== JSON.stringify(value));
+  /** writes a value (or an updater applied to each item's own current value) to every target, as one undo step */
+  const write = (v: Variant | null) => (val: unknown) => {
+    useDoc.getState().mutate((d) => {
+      for (const r of targets) {
+        const next = typeof val === 'function' ? (val as (cur: T) => unknown)(shownIn(d, r, v)) : val;
+        setProp(d, r, attr, next, v ?? undefined);
+      }
+    });
   };
   /** control setter: in a variant, "back to default" must be stored explicitly, or the base value would show through */
   const setFor = (v: Variant | null) => (val: unknown) => write(v)(val === null && v ? (explicitDefault !== undefined ? explicitDefault : fallback) : val);
@@ -130,7 +151,9 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicit
             </button>
           )}
         </div>
-        <div className={cx('flex min-w-0 flex-1 items-center gap-2', wide ? 'justify-start' : 'justify-end')}>{control(value, setFor(variant))}</div>
+        <div className={cx('flex min-w-0 flex-1 items-center gap-2', wide ? 'justify-start' : 'justify-end')} title={mixed ? t('mixedHint') : undefined}>
+          <MixedCtx.Provider value={mixed}>{control(value, setFor(variant))}</MixedCtx.Provider>
+        </div>
       </div>
       {scope === 'all' &&
         variants.map((v) => {
@@ -388,14 +411,14 @@ function GroupStyle({ id }: { id: string }) {
             return (
               <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                 <div className="flex justify-end">
-                  <Toggle label={t('refraction')} checked={!!v?.enabled} onChange={(on) => set(on ? { ...r, enabled: true } : null)} />
+                  <Toggle label={t('refraction')} checked={!!v?.enabled} onChange={(on) => set(on ? (c: typeof v) => ({ ...(c ?? r), enabled: true }) : null)} />
                 </div>
                 {v?.enabled && (
                   <>
-                    <RefractionPad strength={r.strength} depth={r.depth} onChange={(s, d) => set({ ...r, strength: s, depth: d })} />
+                    <RefractionPad strength={r.strength} depth={r.depth} onChange={(s, d) => set((c: typeof v) => ({ ...(c ?? r), strength: s, depth: d }))} />
                     <div className="flex gap-1.5">
-                      <NumberField className="flex-1" prefix={t('strength')} label={t('strength')} value={r.strength} min={0} max={1} format={fmtPct} parse={parsePct} onChange={(s) => set({ ...r, strength: s })} />
-                      <NumberField className="flex-1" prefix={t('depth')} label={t('depth')} value={r.depth} min={0} max={1} format={fmtPct} parse={parsePct} onChange={(d) => set({ ...r, depth: d })} />
+                      <NumberField className="flex-1" prefix={t('strength')} label={t('strength')} value={r.strength} min={0} max={1} format={fmtPct} parse={parsePct} onChange={(s) => set((c: typeof v) => ({ ...(c ?? r), strength: s }))} />
+                      <NumberField className="flex-1" prefix={t('depth')} label={t('depth')} value={r.depth} min={0} max={1} format={fmtPct} parse={parsePct} onChange={(d) => set((c: typeof v) => ({ ...(c ?? r), depth: d }))} />
                     </div>
                   </>
                 )}
@@ -411,9 +434,9 @@ function GroupStyle({ id }: { id: string }) {
           fallback={{ enabled: true, value: 0.5 }}
           control={(v, set) => (
             <>
-              <Toggle label={t('translucency')} checked={v.enabled} onChange={(on) => set({ ...v, enabled: on })} />
+              <Toggle label={t('translucency')} checked={v.enabled} onChange={(on) => set((c: typeof v) => ({ ...c, enabled: on }))} />
               <div className={cx('flex min-w-0 flex-1', !v.enabled && 'pointer-events-none opacity-40')}>
-                <Slider label={t('translucency')} value={v.value} onChange={(x) => set({ ...v, value: x })} format={fmtPct} parse={parsePct} defaultValue={0.5} />
+                <Slider label={t('translucency')} value={v.value} onChange={(x) => set((c: typeof v) => ({ ...c, value: x }))} format={fmtPct} parse={parsePct} defaultValue={0.5} />
               </div>
             </>
           )}
@@ -429,14 +452,14 @@ function GroupStyle({ id }: { id: string }) {
               <Select
                 label={t('shadow')}
                 value={v.kind}
-                onChange={(k) => set({ ...v, kind: k })}
+                onChange={(k) => set((c: typeof v) => ({ ...c, kind: k }))}
                 options={[
                   { value: 'none', label: t('none') },
                   { value: 'neutral', label: t('neutral') },
                   { value: 'layer-color', label: t('chromatic') },
                 ]}
               />
-              {v.kind !== 'none' && <Slider label={`${t('shadow')} ${t('opacity')}`} value={v.opacity} onChange={(o) => set({ ...v, opacity: o })} format={fmtPct} parse={parsePct} defaultValue={0.5} />}
+              {v.kind !== 'none' && <Slider label={`${t('shadow')} ${t('opacity')}`} value={v.opacity} onChange={(o) => set((c: typeof v) => ({ ...c, opacity: o }))} format={fmtPct} parse={parsePct} defaultValue={0.5} />}
             </div>
           )}
         />
@@ -466,10 +489,11 @@ function LayerStyle({ id }: { id: string }) {
 function CompositionSection({ nodeRef }: { nodeRef: NodeRef }) {
   const doc = useDoc((s) => s.doc);
   const isLayer = nodeRef.kind === 'layer';
+  const multi = (useContext(TargetsCtx)?.length ?? 1) > 1;
   return (
     <Section title={t('composition')} section="composition">
       <Setting nodeRef={nodeRef} section="composition" attr="hidden" label={t('visible')} fallback={false} control={(v, set) => <Toggle label={t('visible')} checked={!v} onChange={(on) => set(on ? null : true)} />} />
-      {isLayer && (
+      {isLayer && !multi && (
         <Setting
           nodeRef={nodeRef}
           section="composition"
@@ -502,20 +526,33 @@ function CompositionSection({ nodeRef }: { nodeRef: NodeRef }) {
         label={t('layout')}
         wide
         fallback={{ scale: 1, 'translation-in-points': [0, 0] } as Position}
-        control={(p, set) => {
-          const [x, y] = p['translation-in-points'] ?? [0, 0];
-          const write = (np: Position) => set(np.scale === 1 && np['translation-in-points'][0] === 0 && np['translation-in-points'][1] === 0 ? null : np);
-          const f1 = (v: number) => String(Math.round(v * 10) / 10);
-          return (
-            <div className="grid min-w-0 flex-1 grid-cols-3 gap-1.5">
-              <NumberField prefix="X" label="X" value={x} step={1} format={f1} onChange={(v) => write({ ...p, 'translation-in-points': [v, y] })} />
-              <NumberField prefix="Y" label="Y" value={y} step={1} format={f1} onChange={(v) => write({ ...p, 'translation-in-points': [x, v] })} />
-              <NumberField label={t('scale')} value={p.scale ?? 1} min={0.05} max={10} step={0.01} format={fmtPct} parse={parsePct} onChange={(v) => write({ ...p, scale: v })} />
-            </div>
-          );
-        }}
+        control={(p, set) => <LayoutFields p={p} set={set} />}
       />
+      <AlignRow />
     </Section>
+  );
+}
+
+/** X / Y / scale. Each field shows "—" when the selected items differ in it, and edits keep the other fields per item. */
+function LayoutFields({ p, set }: { p: Position; set: (v: unknown) => void }) {
+  const targets = useContext(TargetsCtx);
+  const doc = useDoc((s) => s.doc);
+  const ui = useUI();
+  const ctx = { appearance: currentAppearance(ui), idiom: ui.platform as Idiom };
+  const all = (targets ?? []).map(
+    (r) => resolveProp<Position>(propsOf(doc, r)?.position, ctx, { scale: 1, 'translation-in-points': [0, 0] }) ?? { scale: 1, 'translation-in-points': [0, 0] },
+  );
+  const differs = (f: (q: Position) => number) => all.length > 1 && all.some((q) => f(q) !== f(all[0]!));
+  const [x, y] = p['translation-in-points'] ?? [0, 0];
+  const id: Position = { scale: 1, 'translation-in-points': [0, 0] };
+  const upd = (fn: (q: Position) => Position) => set((c: Position | null) => fn(c ?? id));
+  const f1 = (v: number) => String(Math.round(v * 10) / 10);
+  return (
+    <div className="grid min-w-0 flex-1 grid-cols-3 gap-1.5">
+      <NumberField prefix="X" label="X" value={x} step={1} format={f1} mixed={differs((q) => q['translation-in-points']?.[0] ?? 0)} onChange={(v) => upd((q) => ({ ...q, 'translation-in-points': [v, q['translation-in-points']?.[1] ?? 0] }))} />
+      <NumberField prefix="Y" label="Y" value={y} step={1} format={f1} mixed={differs((q) => q['translation-in-points']?.[1] ?? 0)} onChange={(v) => upd((q) => ({ ...q, 'translation-in-points': [q['translation-in-points']?.[0] ?? 0, v] }))} />
+      <NumberField label={t('scale')} value={p.scale ?? 1} min={0.05} max={10} step={0.01} format={fmtPct} parse={parsePct} mixed={differs((q) => q.scale ?? 1)} onChange={(v) => upd((q) => ({ ...q, scale: v }))} />
+    </div>
   );
 }
 
@@ -577,6 +614,20 @@ function SelectionHeader() {
   const { selection } = useUI();
   let kind = t('icon');
   let name = docName;
+  if (selection.kind === 'multi') {
+    const names = selectedRefs(selection).map((r) => (r.kind === 'group' ? nameOf(findGroup(doc, r.id) ?? { id: '', props: {}, order: [], layers: [] }) : findLayer(doc, r.id) ? nameOf(findLayer(doc, r.id)!.layer) : ''));
+    return (
+      <div className="border-b border-sep px-4 py-2.5">
+        <div className="text-[11px] tracking-[0.4px] text-t3 uppercase">{t('selectionLabel')}</div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="shrink-0 text-[13px] font-semibold">{t(selection.of === 'group' ? 'groupsSelected' : 'layersSelected', { n: selection.ids.length })}</span>
+          <span className="truncate text-[11px] text-t3" title={names.join(', ')}>
+            {names.join(', ')}
+          </span>
+        </div>
+      </div>
+    );
+  }
   if (selection.kind === 'group') {
     const g = findGroup(doc, selection.id);
     kind = t('group');
@@ -593,7 +644,7 @@ function SelectionHeader() {
         type="button"
         className="max-w-full truncate text-left text-[13px] font-semibold"
         title={t('rename')}
-        onDoubleClick={() => selection.kind !== 'document' && useRename.getState().set(selection.id)}
+        onDoubleClick={() => (selection.kind === 'group' || selection.kind === 'layer') && useRename.getState().set(selection.id)}
       >
         {name}
       </button>
@@ -609,7 +660,14 @@ export function Inspector() {
   if (inspectorTab === 'document') body = <DocumentInspector />;
   else if (selection.kind === 'group' && findGroup(doc, selection.id)) body = <GroupStyle id={selection.id} />;
   else if (selection.kind === 'layer' && findLayer(doc, selection.id)) body = <LayerStyle id={selection.id} />;
-  else body = <DocumentStyle />;
+  else if (selection.kind === 'multi') {
+    const refs = selectedRefs(selection) as NodeRef[];
+    body = (
+      <TargetsCtx.Provider value={refs}>
+        {selection.of === 'group' ? <GroupStyle id={selection.primary} key={selection.ids.join()} /> : <LayerStyle id={selection.primary} key={selection.ids.join()} />}
+      </TargetsCtx.Provider>
+    );
+  } else body = <DocumentStyle />;
 
   return (
     <aside className="flex w-[300px] shrink-0 flex-col border-l border-sep bg-sidebar" aria-label="Inspector">

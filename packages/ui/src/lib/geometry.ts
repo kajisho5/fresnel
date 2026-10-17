@@ -1,55 +1,10 @@
-import { CANVAS, resolveProp, type IconDocument, type Position, type ResolveCtx } from '@fresnel/core';
+import { CANVAS, layoutBoxes, type IconDocument, type NodeBox, type ResolveCtx } from '@fresnel/core';
 
-export interface Box {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+export type { Box, NodeBox } from '@fresnel/core';
 
-export interface NodeBox extends Box {
-  kind: 'group' | 'layer';
-  id: string;
-  groupId: string;
-}
-
-const H = CANVAS / 2;
-
-/** Bounding boxes of visible layers (front to back) and groups, in canvas points. Mirrors @fresnel/render placement. */
+/** Bounding boxes of visible layers (front to back) and groups, in canvas points. */
 export function layout(doc: IconDocument, ctx: ResolveCtx): { layers: NodeBox[]; groups: NodeBox[] } {
-  const layers: NodeBox[] = [];
-  const groups: NodeBox[] = [];
-  for (const g of doc.groups) {
-    if (resolveProp(g.props.hidden, ctx, false)) continue;
-    const gp = resolveProp<Position | null>(g.props.position, ctx, null);
-    const gs = gp?.scale ?? 1;
-    const [gx, gy] = gp?.['translation-in-points'] ?? [0, 0];
-    const toCanvas = (x: number, y: number) => ({ x: H + gx + (x - H) * gs, y: H + gy + (y - H) * gs });
-    const inGroup: NodeBox[] = [];
-    for (const l of g.layers) {
-      if (resolveProp(l.props.hidden, ctx, false)) continue;
-      const img = resolveProp<string>(l.props['image-name'], ctx, '');
-      const a = doc.assets[img];
-      if (!a) continue;
-      const p = resolveProp<Position | null>(l.props.position, ctx, null);
-      const s = p?.scale ?? 1;
-      const [tx, ty] = p?.['translation-in-points'] ?? [0, 0];
-      const w = a.width * s;
-      const h = a.height * s;
-      const tl = toCanvas(H + tx - w / 2, H + ty - h / 2);
-      const b: NodeBox = { kind: 'layer', id: l.id, groupId: g.id, x: tl.x, y: tl.y, w: w * gs, h: h * gs };
-      inGroup.push(b);
-      layers.push(b);
-    }
-    if (inGroup.length) {
-      const x = Math.min(...inGroup.map((b) => b.x));
-      const y = Math.min(...inGroup.map((b) => b.y));
-      const x2 = Math.max(...inGroup.map((b) => b.x + b.w));
-      const y2 = Math.max(...inGroup.map((b) => b.y + b.h));
-      groups.push({ kind: 'group', id: g.id, groupId: g.id, x, y, w: x2 - x, h: y2 - y });
-    }
-  }
-  return { layers, groups };
+  return layoutBoxes(doc, ctx);
 }
 
 /**

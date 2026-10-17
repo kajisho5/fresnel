@@ -9,6 +9,10 @@ import {
   buildAppIconSet,
   buildIcns,
   buildPngSet,
+  alignNodes,
+  boxOf,
+  distributeNodes,
+  type AlignHow,
   targetsWatch,
   unrenderableLayers,
   createDocument,
@@ -320,6 +324,38 @@ export function createServer(ws: Workspace): McpServer {
         }
         moveNode(doc, ref, index, gid);
         return inspect(doc).groups.map((g) => ({ group: g.target, layers: g.layers.map((l) => l.target) }));
+      });
+      return ok(text(res));
+    }),
+  );
+
+  server.registerTool(
+    'icon_align',
+    {
+      title: 'Align or distribute',
+      description:
+        'Aligns groups or layers by their bounding boxes (left, hcenter, right, top, vcenter, bottom), or spaces 3+ items evenly ' +
+        '(distribute-horizontal, distribute-vertical). With one target, or basis "canvas", items align to the 1024 pt canvas. Only positions change.',
+      inputSchema: {
+        path: z.string(),
+        targets: z.array(z.string()).min(1).describe('"<Group>" or "<Group>/<Layer>" (names or #index); all of the same kind'),
+        how: z.enum(['left', 'hcenter', 'right', 'top', 'vcenter', 'bottom', 'distribute-horizontal', 'distribute-vertical']),
+        basis: z.enum(['selection', 'canvas']).optional().describe('Default: selection (canvas when there is one target)'),
+        platform: z.enum(['iOS', 'macOS', 'watchOS', 'square']).optional().describe('Write the positions as a platform variant'),
+      },
+    },
+    safe(async ({ path, targets, how, basis, platform }) => {
+      const full = await ws.iconPath(path, { mustExist: true });
+      const res = await ws.edit(full, (doc) => {
+        const refs = targets.map((t) => resolvePath(doc, t));
+        if (refs.some((r) => r.kind === 'document')) throw new Error('targets must be groups or layers');
+        if (new Set(refs.map((r) => r.kind)).size > 1) throw new Error('targets must all be groups or all be layers');
+        const ctx = { appearance: 'default' as const, idiom: platform === 'square' || !platform ? ('iOS' as const) : platform };
+        const variant = platform ? { idiom: platform } : undefined;
+        const moved = how.startsWith('distribute-')
+          ? distributeNodes(doc, refs, how === 'distribute-horizontal' ? 'horizontal' : 'vertical', ctx, { variant })
+          : alignNodes(doc, refs, how as AlignHow, ctx, { ...(basis ? { basis } : {}), variant });
+        return { moved, positions: refs.map((r, i) => ({ target: targets[i], box: boxOf(doc, r, ctx) })) };
       });
       return ok(text(res));
     }),

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { Grid3x3, ImagePlus, LayoutGrid, Plus, Sparkles, SlidersHorizontal } from 'lucide-react';
-import { CANVAS, resolveProp, squarePlatforms, type Position } from '@fresnel/core';
+import { CANVAS, resolveProp, setProp, squarePlatforms, unionBox, type Box, type Position } from '@fresnel/core';
 import { renderSvg } from '@fresnel/render';
 import { beginGesture, endGesture, useDoc } from '../store/doc';
-import { currentAppearance, currentAppearanceKey, tintHex, useUI, type BackgroundImage, type Platform } from '../store/ui';
+import { currentAppearance, currentAppearanceKey, isSelected, selectedRefs, selectionOf, tintHex, useUI, type BackgroundImage, type ItemRef, type Platform } from '../store/ui';
 import { t, useLang } from '../i18n';
 import { useIconUrl } from '../lib/useIconUrl';
 import { renderOptsFrom } from '../lib/renderOpts';
@@ -346,9 +346,14 @@ function Stage() {
   const ctx = { appearance: currentAppearance(ui), idiom: ui.platform };
   const geo = useMemo(() => layout(doc, ctx), [doc, ctx.appearance, ctx.idiom]); // eslint-disable-line react-hooks/exhaustive-deps
   const sel = ui.selection;
-  const selBox: NodeBox | undefined =
-    sel.kind === 'layer' ? geo.layers.find((b) => b.id === sel.id) : sel.kind === 'group' ? geo.groups.find((b) => b.id === sel.id) : undefined;
-  const drag = useRef<{ ref: { kind: 'group' | 'layer'; id: string }; startX: number; startY: number; orig: Position; moved: boolean } | null>(null);
+  const selected = selectedRefs(sel);
+  const boxOfRef = (r: ItemRef) => (r.kind === 'layer' ? geo.layers.find((b) => b.id === r.id) : geo.groups.find((b) => b.id === r.id));
+  const selBoxes = selected.map(boxOfRef).filter((b): b is NodeBox => !!b);
+  const selBox: NodeBox | undefined = selected.length === 1 ? selBoxes[0] : undefined;
+  const union = selected.length > 1 ? unionBox(selBoxes) : null;
+  const drag = useRef<{ refs: ItemRef[]; startX: number; startY: number; origs: Map<string, Position>; start: Box | null; moved: boolean } | null>(null);
+  const marquee = useRef<{ x0: number; y0: number; base: ItemRef[] } | null>(null);
+  const [band, setBand] = useState<Box | null>(null);
   const [guides, setGuides] = useState<{ v: boolean; h: boolean }>({ v: false, h: false });
 
   const toPt = (e: { clientX: number; clientY: number }) => {
@@ -358,28 +363,64 @@ function Stage() {
 
   const variantFor = () => (ui.sectionScope.composition === 'variant' ? { idiom: editIdiom(ui) } : undefined);
 
-  const posOf = (r: { kind: 'group' | 'layer'; id: string }): Position => {
+  const posOf = (r: ItemRef): Position => {
     const d = useDoc.getState().doc;
     const node = r.kind === 'group' ? d.groups.find((g) => g.id === r.id) : d.groups.flatMap((g) => g.layers).find((l) => l.id === r.id);
     return resolveProp<Position>(node?.props.position, ctx, { scale: 1, 'translation-in-points': [0, 0] }) ?? { scale: 1, 'translation-in-points': [0, 0] };
+  };
+  /** a layer's offset lives in its group's (possibly scaled) space */
+  const groupScaleOf = (r: ItemRef) => {
+    if (r.kind === 'group') return 1;
+    const lb = geo.layers.find((x) => x.id === r.id);
+    const g = useDoc.getState().doc.groups.find((x) => x.id === lb?.groupId);
+    return resolveProp<Position | null>(g?.props.position, ctx, null)?.scale ?? 1;
   };
 
   const onDown = (e: RPointerEvent) => {
     if (e.button !== 0 || empty) return;
     const p = toPt(e);
     const hit = hitTest(geo.layers, p.x, p.y);
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey;
     if (!hit) {
-      ui.select({ kind: 'document' });
+      // empty canvas: start a selection marquee
+      marquee.current = { x0: p.x, y0: p.y, base: additive ? selected : [] };
+      setBand(null);
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       return;
     }
     // keep a selected group selected when clicking one of its layers (drag the whole group)
-    const target: { kind: 'group' | 'layer'; id: string } = sel.kind === 'group' && sel.id === hit.groupId ? { kind: 'group', id: hit.groupId } : { kind: 'layer', id: hit.id };
-    ui.select(target);
-    drag.current = { ref: target, startX: p.x, startY: p.y, orig: posOf(target), moved: false };
+    const target: ItemRef = selected.some((r) => r.kind === 'group' && r.id === hit.groupId) ? { kind: 'group', id: hit.groupId } : { kind: 'layer', id: hit.id };
+    if (e.metaKey || e.ctrlKey) {
+      ui.toggleSelect(target);
+      return;
+    }
+    // clicking an item that's already part of the selection drags the whole selection
+    const inSel = isSelected(sel, target);
+    const refs = inSel ? selected : [target];
+    if (!inSel) ui.select(target);
+    drag.current = {
+      refs,
+      startX: p.x,
+      startY: p.y,
+      origs: new Map(refs.map((r) => [r.id, posOf(r)])),
+      start: unionBox(refs.map(boxOfRef).filter((b): b is NodeBox => !!b)),
+      moved: false,
+    };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
   const onMove = (e: RPointerEvent) => {
+    const m = marquee.current;
+    if (m) {
+      const p = toPt(e);
+      const box = { x: Math.min(m.x0, p.x), y: Math.min(m.y0, p.y), w: Math.abs(p.x - m.x0), h: Math.abs(p.y - m.y0) };
+      if (box.w * k < 3 && box.h * k < 3) return;
+      setBand(box);
+      // every layer the band touches
+      const hits = geo.layers.filter((b) => b.x < box.x + box.w && b.x + b.w > box.x && b.y < box.y + box.h && b.y + b.h > box.y).map((b) => ({ kind: 'layer', id: b.id }) as ItemRef);
+      ui.select(selectionOf([...m.base.filter((r) => r.kind === 'layer'), ...hits]));
+      return;
+    }
     const d = drag.current;
     if (!d) return;
     const p = toPt(e);
@@ -394,39 +435,44 @@ function Stage() {
       if (Math.abs(dx) > Math.abs(dy)) dy = 0;
       else dx = 0;
     }
-    // a layer's offset is in its group's (possibly scaled) space
-    if (d.ref.kind === 'layer') {
-      const lb = geo.layers.find((x) => x.id === d.ref.id);
-      const g = useDoc.getState().doc.groups.find((x) => x.id === lb?.groupId);
-      const gs = resolveProp<Position | null>(g?.props.position, ctx, null)?.scale ?? 1;
-      dx /= gs;
-      dy /= gs;
-    }
-    let tx = d.orig['translation-in-points'][0] + dx;
-    let ty = d.orig['translation-in-points'][1] + dy;
-    // snap the selection's center to the canvas center lines
-    const b = d.ref.kind === 'layer' ? geo.layers.find((x) => x.id === d.ref.id) : geo.groups.find((x) => x.id === d.ref.id);
+    // snap the moving items' center to the canvas center lines
     let v = false;
     let h = false;
-    if (b) {
-      const cx0 = b.x + b.w / 2 + (tx - posOf(d.ref)['translation-in-points'][0]);
-      const cy0 = b.y + b.h / 2 + (ty - posOf(d.ref)['translation-in-points'][1]);
+    if (d.start) {
       const snap = 6 / k;
+      const cx0 = d.start.x + d.start.w / 2 + dx;
+      const cy0 = d.start.y + d.start.h / 2 + dy;
       if (Math.abs(cx0 - CANVAS / 2) < snap) {
-        tx += CANVAS / 2 - cx0;
+        dx += CANVAS / 2 - cx0;
         v = true;
       }
       if (Math.abs(cy0 - CANVAS / 2) < snap) {
-        ty += CANVAS / 2 - cy0;
+        dy += CANVAS / 2 - cy0;
         h = true;
       }
     }
     setGuides({ v, h });
-    const np: Position = { ...d.orig, 'translation-in-points': [Math.round(tx * 10) / 10, Math.round(ty * 10) / 10] };
-    useDoc.getState().setProp(d.ref, 'position', np, variantFor());
+    const variant = variantFor();
+    useDoc.getState().mutate((doc) => {
+      for (const r of d.refs) {
+        const o = d.origs.get(r.id);
+        if (!o) continue;
+        const gs = groupScaleOf(r);
+        const [ox, oy] = o['translation-in-points'] ?? [0, 0];
+        const np: Position = { ...o, 'translation-in-points': [Math.round((ox + dx / gs) * 10) / 10, Math.round((oy + dy / gs) * 10) / 10] };
+        setProp(doc, r, 'position', np, variant);
+      }
+    });
   };
 
   const onUp = () => {
+    if (marquee.current) {
+      // a click (no band) on empty canvas clears the selection unless a modifier was held
+      if (!band && !marquee.current.base.length) ui.select({ kind: 'document' });
+      marquee.current = null;
+      setBand(null);
+      return;
+    }
     if (drag.current?.moved) endGesture();
     drag.current = null;
     setGuides({ v: false, h: false });
@@ -489,6 +535,37 @@ function Stage() {
                 <span key={`${a}${b2}`} className="absolute h-1.5 w-1.5 rounded-[1px] border border-accent bg-white" style={{ left: `calc(${a! * 100}% - 3px)`, top: `calc(${b2! * 100}% - 3px)` }} />
               ))}
             </div>
+          )}
+          {union && (
+            <>
+              {selBoxes.map((b) => (
+                <div key={b.id} className="pointer-events-none absolute border border-accent" style={{ left: ax0 + b.x * k, top: ay0 + b.y * k, width: b.w * k, height: b.h * k }} />
+              ))}
+              <div
+                className="pointer-events-none absolute border border-dashed border-accent"
+                style={{ left: ax0 + union.x * k, top: ay0 + union.y * k, width: union.w * k, height: union.h * k }}
+                data-testid="selection-union"
+              >
+                {[
+                  [0, 0],
+                  [1, 0],
+                  [0, 1],
+                  [1, 1],
+                ].map(([a, b2]) => (
+                  <span key={`${a}${b2}`} className="absolute h-2 w-2 rounded-[1.5px] border border-accent bg-white" style={{ left: `calc(${a! * 100}% - 4px)`, top: `calc(${b2! * 100}% - 4px)` }} />
+                ))}
+                <span className="absolute -top-7 left-1/2 -translate-x-1/2 rounded-full bg-accent/90 px-2.5 py-0.5 text-[11px] whitespace-nowrap text-white">
+                  {t('selectedCount', { n: selected.length })}
+                </span>
+              </div>
+            </>
+          )}
+          {band && (
+            <div
+              className="pointer-events-none absolute border border-accent bg-accent/10"
+              style={{ left: ax0 + band.x * k, top: ay0 + band.y * k, width: band.w * k, height: band.h * k }}
+              data-testid="marquee"
+            />
           )}
           {guides.v && <div className="pointer-events-none absolute w-px bg-[#FF3BC4]" style={{ left: x0 + size / 2, top: y0 - 20, height: size + 40 }} />}
           {guides.h && <div className="pointer-events-none absolute h-px bg-[#FF3BC4]" style={{ top: y0 + size / 2, left: x0 - 20, width: size + 40 }} />}

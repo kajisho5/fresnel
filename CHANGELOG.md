@@ -4,6 +4,11 @@ All notable changes to fresnel are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+- Multiple selection: ⌘-click, ⇧-click ranges in the sidebar, ⌘A, and a marquee on the canvas. Edit, move, hide, group, delete and paste styles on several items at once; differing values show as Mixed.
+- Align (six edges and centers) and Distribute (horizontal, vertical), to the selection or the canvas, from the inspector, the menu and context menus. MCP tool `icon_align`.
+- Menus support submenus (mouse and keyboard).
+
 ## [0.1.1] - 2026-10-17
 
 ### Added

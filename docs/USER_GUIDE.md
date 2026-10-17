@@ -72,7 +72,8 @@ The system applies the glass effects and masks the shape when it shows your icon
 - **Reordering.** Drag a row. A line shows where it will go: drop on the upper half of a row to place the item before it, or on the lower half to place it after. Dropping a layer on a group row moves it to the top of that group. You can also use ⌘] (forward) and ⌘[ (backward).
 - **Renaming.** Double-click a name, type, and press Return. Esc cancels.
 - **Show and hide.** Hover a row and click the eye, or press ⇧⌘H. Hidden items are dimmed. Visibility can be a [variant](#8-variants-vary-for), for example hidden only on watchOS.
-- **Context menu.** Right-click a row for Duplicate (⌘D), Bring Forward / Send Backward, Group / Ungroup, Show / Hide, Copy Style / Paste Style and Remove.
+- **Several items.** ⌘-click adds a row to the selection or removes it; ⇧-click selects a range of rows of the same kind; ⌘A selects every layer. You can select layers or groups, not both at once. Layers from different groups can be selected together.
+- **Context menu.** Right-click a row for Duplicate (⌘D), Bring Forward / Send Backward, Group / Ungroup, Show / Hide, Align ▸, Distribute ▸, Copy Style / Paste Style and Remove. With several items selected, every command applies to all of them, and ⌘G puts the selected layers into one new group.
 - **Badges.** **Glass** marks a group with translucency on, or with at least one glass layer.
 - **Copy Style / Paste Style** (⌥⌘C / ⌥⌘V) copy all style settings (not the image or name) from one group or layer to another of the same kind.
 
@@ -83,6 +84,19 @@ The system applies the glass effects and masks the shape when it shows your icon
 - Click the artwork to select the layer under the pointer. Click empty space to select nothing. Esc deselects.
 - Drag a selected layer or group to move it. Its center snaps to the canvas center lines. Hold ⇧ to move only horizontally or vertically.
 - The arrow keys move the selection 1 pt, and ⇧ + arrow keys move it 10 pt.
+- ⌘-click adds a layer to the selection or removes it. Dragging on empty canvas draws a marquee that selects every layer it touches (hold ⇧ or ⌘ to add to the current selection). With several items, a dashed box shows their combined bounds, and dragging any of them moves them all.
+
+### Align and Distribute
+
+Use **Composition → Align** in the inspector, or **Align ▸ / Distribute ▸** in the menu and context menus.
+
+| Command | What it does |
+|---|---|
+| Left / Horizontal Centers / Right Edges | Lines up the items' bounding boxes horizontally |
+| Top / Vertical Centers / Bottom Edges | Lines them up vertically |
+| Distribute Horizontally / Vertically | Spaces the centers of 3 or more items evenly; the two outermost items stay put |
+
+With several items, Align uses the selection's bounds (switch to **To Canvas** next to Align to use the canvas). With one item it always aligns to the 1024 pt canvas. Only positions change, and each command is one undo step.
 - A whole drag is a single undo step.
 
 ### Canvas toolbar
@@ -103,7 +117,7 @@ The system applies the glass effects and masks the shape when it shows your icon
 
 ### Style
 
-The Style tab shows the settings for the current selection, in three sections. Each section header has an **Applies to** popup. **All** edits the base value. The other choice, such as **Dark**, **Mono** or **watchOS**, edits only the current appearance or platform. See [Variants](#8-variants-vary-for).
+The Style tab shows the settings for the current selection, in three sections. With several items selected, the header shows how many, a setting shows **Mixed** (or **—** in number fields) when their values differ, and a change applies to all of them. Fields that hold several values, like X / Y / scale, change only the part you edit for each item. Each section header has an **Applies to** popup. **All** edits the base value. The other choice, such as **Dark**, **Mono** or **watchOS**, edits only the current appearance or platform. See [Variants](#8-variants-vary-for).
 
 **Color**
 
@@ -273,6 +287,7 @@ On Windows and Linux, use Ctrl instead of ⌘.
 | **Edit** | Undo ⌘Z · Redo ⇧⌘Z · Duplicate ⌘D · Delete ⌫ · Copy Style ⌥⌘C · Paste Style ⌥⌘V |
 | **Layers** | Add images ⇧⌘I · Group ⌘G · Ungroup ⇧⌘G · Forward ⌘] · Backward ⌘[ · Show / Hide ⇧⌘H |
 | **View** | Edit ⌘1 · Compare ⌘2 · Default ⌥1 · Dark ⌥2 · Mono ⌥3 · Zoom ⌘＋ / ⌘− / ⌘0 |
+| **Selection** | Add or remove: ⌘-click · Range (sidebar): ⇧-click · All layers: ⌘A · Marquee: drag on empty canvas |
 | **Canvas** | Move 1 pt: arrow keys · Move 10 pt: ⇧ + arrow keys · Constrain a drag: ⇧ · Deselect: Esc |
 | **Fields** | Step ↑ / ↓ · ×10 with ⇧ · ×0.1 with ⌥ · Commit: Return · Cancel: Esc |
 
