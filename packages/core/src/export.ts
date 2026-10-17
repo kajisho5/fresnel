@@ -130,7 +130,8 @@ export async function buildAppIconSet(rasterize: Rasterize, opts: { watch?: bool
     }
   }
   if (opts.watch) {
-    // watchOS single size: a full-bleed opaque square; the system applies the circle [推測: Xcode's "watchos" slot]
+    // watchOS single size: the whole 1088 pt watch canvas (Icon Composer's) scaled to 1024 px, opaque and unmasked;
+    // the system applies the circle [推測: inscribed in the image, as for pre-Liquid-Glass watch icons]
     files['AppIcon-Watch.png'] = flattenPng(await rasterize('default', 1024, { mask: 'none', idiom: 'watchOS' }));
     images.push({ filename: 'AppIcon-Watch.png', idiom: 'universal', platform: 'watchos', size: '1024x1024' });
   }

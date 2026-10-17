@@ -230,8 +230,10 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   let darken = 0;
   if (dark && !darkOverridden && bgFill !== 'automatic' && bgFill !== 'system-dark' && bgFill !== 'none') darken = 0.62; // system-generated dark
   let bgPaint: string | null;
-  // watchOS: the canvas is 1088 pt, 32 pt larger on each side than the shared 1024 artwork (Apple HIG)
-  const P = mask === 'circle' ? 32 : 0;
+  // watchOS: the canvas is 1088 pt, 32 pt larger on each side than the shared 1024 artwork.
+  // Sources: HIG App icons (watchOS layout size 1088×1088), WWDC25 #220 ("the 1088 pixel canvas overshoots
+  // our rounded rectangle"), Xcode "Creating your app icon using Icon Composer" (1088 × 1088 for Apple Watch).
+  const P = mask === 'circle' || ctx.idiom === 'watchOS' ? 32 : 0;
   const full = { x: -P, y: -P, w: C + 2 * P, h: C + 2 * P };
   // an explicit Mono ("tinted") fill override replaces the system-generated clear / tinted background [推測]
   // (Clear and Tinted are both "Mono" in Icon Composer, so the "tinted" variant is used for both)
@@ -518,7 +520,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
 
   // ------------------------------------------------------------ mask + rim
   const clipId = defs.id('clip');
-  const shape = maskPath(mask);
+  const shape = maskPath(mask, P);
   defs.add(`<clipPath id="${clipId}"><path d="${shape}"/></clipPath>`);
   // inset is measured in the output (1024 pt) image: inset 100 → an 824 pt body. In viewBox units that is
   // inset × C / (C − 2 × inset), because the viewBox grows by the margin on both sides.

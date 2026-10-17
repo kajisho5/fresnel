@@ -117,4 +117,26 @@ describe('research-backed rendering', () => {
     // dark glass on a light background → inside
     expect(mk('#f0f0f0', '#202020')).not.toContain('feMorphology');
   });
+
+  it('watch slot holds the whole 1088 pt watch canvas, like Icon Composer', async () => {
+    const { addGroup, addLayer, createDocument, decodePng, makeAsset, setProp } = await import('@fresnel/core');
+    // white background, a black bar touching the left and right edges of the 1024 artwork
+    const doc = createDocument({ background: '#FFFFFF', platforms: { circles: ['watchOS'], squares: 'shared' } });
+    const g = addGroup(doc, { name: 'G' });
+    setProp(doc, { kind: 'group', id: g.id }, 'shadow', { kind: 'none', opacity: 0 });
+    setProp(doc, { kind: 'group', id: g.id }, 'translucency', { enabled: false, value: 0 });
+    setProp(doc, { kind: 'group', id: g.id }, 'specular', false);
+    const l = addLayer(doc, g.id, makeAsset('bar.svg', strToU8('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect y="462" width="1024" height="100" fill="#000"/></svg>')));
+    setProp(doc, { kind: 'layer', id: l.id }, 'glass', false);
+    const files = await buildAppIconSet(nodeRasterizer(doc), { watch: true });
+    const png = decodePng(files['AppIcon-Watch.png']!)!;
+    expect(png.width).toBe(1024);
+    const row = 512 * png.width * 4;
+    const dark = (x: number) => png.data[row + x * 4]! < 100;
+    // the bar starts about 32 × 1024 / 1088 ≈ 30 px in from each side
+    const first = [...Array(png.width).keys()].find(dark)!;
+    expect(first).toBeGreaterThan(24);
+    expect(first).toBeLessThan(36);
+    expect(dark(5)).toBe(false);
+  }, 60_000);
 });
