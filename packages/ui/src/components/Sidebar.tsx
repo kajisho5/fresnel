@@ -1,5 +1,5 @@
 import { useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
-import { ChevronDown, ChevronRight, Eye, EyeOff, Folder, FolderPlus, Minus, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Eye, EyeOff, Folder, Plus } from 'lucide-react';
 import {
   baseValue,
   colorToCss,
@@ -13,10 +13,40 @@ import {
   type LayerNode,
 } from '@fresnel/core';
 import { useDoc } from '../store/doc';
-import { useUI, type Selection } from '../store/ui';
+import { currentAppearance, useUI, type Selection } from '../store/ui';
 import { t, useLang } from '../i18n';
 import { importLayers } from '../actions';
-import { IconButton, cx } from './controls';
+import { arrange, canPasteStyle, copyStyle, deleteSelection, duplicateSelection, groupSelection, pasteStyle, toggleVisible, ungroupSelection, useRename } from '../commands';
+import { useMenu, type MenuItem } from './Menu';
+import { useIconUrl } from '../lib/useIconUrl';
+import { renderOptsFrom } from '../lib/renderOpts';
+import { cx } from './controls';
+
+const isMacUA = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+const M = isMacUA ? '⌘' : 'Ctrl+';
+
+export function nodeMenu(kind: 'group' | 'layer' | 'document'): MenuItem[] {
+  if (kind === 'document')
+    return [
+      { label: t('newImage'), onSelect: importLayers },
+      { label: t('newGroup'), onSelect: () => useUI.getState().select({ kind: 'group', id: useDoc.getState().addGroup() }) },
+    ];
+  const s = useUI.getState().selection;
+  return [
+    { label: t('rename'), onSelect: () => s.kind !== 'document' && useRename.getState().set(s.id) },
+    { label: t('duplicate'), shortcut: `${M}D`, onSelect: duplicateSelection },
+    '---',
+    { label: kind === 'group' ? t('bringGroupForward') : t('bringLayerForward'), shortcut: `${M}]`, onSelect: () => arrange(-1) },
+    { label: kind === 'group' ? t('sendGroupBackward') : t('sendLayerBackward'), shortcut: `${M}[`, onSelect: () => arrange(1) },
+    ...(kind === 'layer' ? [{ label: t('groupSelection'), shortcut: `${M}G`, onSelect: groupSelection } as MenuItem] : [{ label: t('ungroup'), shortcut: `⇧${M}G`, onSelect: ungroupSelection } as MenuItem]),
+    { label: t('toggleVisible'), shortcut: `⇧${M}H`, onSelect: () => toggleVisible() },
+    '---',
+    { label: t('copyStyle'), shortcut: `⌥${M}C`, onSelect: copyStyle },
+    { label: t('pasteStyle'), shortcut: `⌥${M}V`, onSelect: pasteStyle, disabled: !canPasteStyle() },
+    '---',
+    { label: t('remove'), shortcut: '⌫', onSelect: () => deleteSelection(), danger: true },
+  ];
+}
 
 const urlCache = new WeakMap<Uint8Array, string>();
 function assetUrl(a: Asset): string {
@@ -52,10 +82,15 @@ const DND = 'application/x-fresnel-node';
 export function Sidebar() {
   useLang();
   const doc = useDoc((s) => s.doc);
-  const { selection, select, appearance } = useUI();
+  const ui = useUI();
+  const { selection, select } = ui;
+  const appearance = currentAppearance(ui);
+  const docName = useDoc((s) => s.name);
+  const iconUrl = useIconUrl(doc, { ...renderOptsFrom(ui), size: 56 });
+  const renaming = useRename((s) => s.id);
+  const setRenaming = useRename((s) => s.set);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState<string | null>(null);
   const actions = useDoc.getState();
 
   const flat = useMemo(() => flatten(doc, collapsed), [doc, collapsed]);
@@ -83,12 +118,11 @@ export function Sidebar() {
     }
   };
 
-  const toggleHidden = (ref: Selection) => {
-    if (ref.kind === 'document') return;
-    const node = ref.kind === 'group' ? doc.groups.find((g) => g.id === ref.id) : doc.groups.flatMap((g) => g.layers).find((l) => l.id === ref.id);
-    if (!node) return;
-    const hidden = resolveProp<boolean>(node.props.hidden, { appearance }, false);
-    actions.setProp(ref, 'hidden', !hidden);
+  const toggleHidden = (ref: Selection) => toggleVisible(ref);
+  const openMenu = (e: React.MouseEvent, r: Selection) => {
+    e.preventDefault();
+    select(r);
+    useMenu.getState().show(e.clientX, e.clientY, nodeMenu(r.kind));
   };
 
   const onKey = (e: KeyboardEvent) => {
@@ -115,28 +149,23 @@ export function Sidebar() {
     }
   };
 
-  const removeSelected = () => {
-    if (selection.kind === 'document') return;
-    const label = flat.find((r) => isSel(r.sel))?.name ?? '';
-    if (!window.confirm(t('deleteConfirm', { name: label }))) return;
-    actions.remove(selection);
-    select({ kind: 'document' });
-  };
+  const removeSelected = () => deleteSelection();
 
   return (
     <aside className="flex w-[260px] shrink-0 flex-col border-r border-sep bg-sidebar" aria-label={t('layers')}>
-      <div className="px-4 pt-[18px] pb-2 text-[11px] font-semibold tracking-[0.6px] text-t3">{t('layers')}</div>
+
       <div role="tree" aria-label={t('layers')} tabIndex={0} onKeyDown={onKey} className="flex-1 overflow-y-auto px-2 pb-2 outline-none">
+        <div className="mt-2" />
         <Row
           selected={isSel({ kind: 'document' })}
           onClick={() => select({ kind: 'document' })}
+          onContextMenu={(e) => openMenu(e, { kind: 'document' })}
           thumb={
-            <Thumb>
-              <div className="h-[22px] w-[22px] rounded" style={{ background: fillToCss(bgFill, appearance.includes('dark')) }} />
+            <Thumb className="!border-0 !bg-transparent">
+              {iconUrl ? <img alt="" src={iconUrl} className="h-7 w-7" draggable={false} /> : <div className="h-[22px] w-[22px] rounded" style={{ background: fillToCss(bgFill, appearance.includes('dark')) }} />}
             </Thumb>
           }
-          name={t('background')}
-          badge={t('fill')}
+          name={docName}
           level={1}
         />
         <div className="mx-2 my-1 h-px bg-sep" />
@@ -153,6 +182,8 @@ export function Sidebar() {
                 selected={isSel(r.sel)}
                 dropping={dropTarget === sel.id}
                 onClick={() => select(r.sel)}
+                onDoubleClick={() => setRenaming(sel.id)}
+                onContextMenu={(e) => openMenu(e, r.sel)}
                 draggable
                 onDragStart={(e) => onDragStart(e, sel)}
                 onDragOver={(e) => {
@@ -203,21 +234,19 @@ export function Sidebar() {
           })}
       </div>
       <div className="flex h-10 shrink-0 items-center gap-0.5 border-t border-sep px-2">
-        <IconButton label={t('addLayer')} onClick={importLayers}>
-          <Plus className="h-4 w-4" />
-        </IconButton>
-        <IconButton label={t('remove')} onClick={removeSelected} disabled={selection.kind === 'document'}>
-          <Minus className="h-4 w-4" />
-        </IconButton>
-        <IconButton
-          label={selection.kind === 'layer' ? t('groupSelection') : t('addGroup')}
-          onClick={() => {
-            if (selection.kind === 'layer') select({ kind: 'group', id: actions.groupLayer(selection.id) });
-            else select({ kind: 'group', id: actions.addGroup() });
+        <button
+          type="button"
+          aria-label={t('add')}
+          title={t('add')}
+          aria-haspopup="menu"
+          onClick={(e) => {
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            useMenu.getState().show(r.left, r.top - 72, nodeMenu('document'));
           }}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-t2 hover:bg-hover hover:text-t1"
         >
-          <FolderPlus className="h-4 w-4" strokeWidth={1.5} />
-        </IconButton>
+          <Plus className="h-4 w-4" />
+        </button>
         <span className="ml-auto pr-2 text-[11px] text-t3">{t('layersCount', { g: doc.groups.length, l: layerCount })}</span>
       </div>
     </aside>
@@ -272,6 +301,8 @@ function Row({
   hidden,
   expander,
   onClick,
+  onDoubleClick,
+  onContextMenu,
   onToggleHidden,
   renaming,
   onRename,
@@ -286,6 +317,8 @@ function Row({
   hidden?: boolean;
   expander?: React.ReactNode;
   onClick: () => void;
+  onDoubleClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   onToggleHidden?: () => void;
   renaming?: boolean;
   onRename?: (v: string) => void;
@@ -301,6 +334,8 @@ function Row({
       aria-selected={selected}
       aria-level={level}
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
       {...drag}
       className={cx(
         'group relative flex h-8 items-center gap-1.5 rounded-md pr-2 transition-colors duration-75',

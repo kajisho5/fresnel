@@ -15,6 +15,7 @@ import { useUI } from '../store/ui';
 import { t, useLang } from '../i18n';
 import { getPlatform } from '../actions';
 import { browserRasterizer, svgUrl } from '../lib/raster';
+import { renderOptsFrom } from '../lib/renderOpts';
 import { IssueIcon, useActool, useIssues } from './StatusBar';
 import { Button, Select, cx } from './controls';
 
@@ -37,7 +38,9 @@ function Check({ checked, disabled, onChange, label }: { checked: boolean; disab
 export function ExportSheet() {
   useLang();
   const { doc, extra, name } = useDoc();
-  const { set, tint, mask } = useUI();
+  const ui = useUI();
+  const { set } = ui;
+  const ropts = renderOptsFrom(ui);
   const issues = useIssues();
   const actool = useActool();
   const [formats, setFormats] = useState<Record<Format, boolean>>({ icon: true, icns: true, appiconset: false, png: true, car: false });
@@ -48,10 +51,10 @@ export function ExportSheet() {
   const plat = getPlatform();
 
   useEffect(() => {
-    const u = svgUrl(renderSvg(doc, { size: 80, tint, mask }));
+    const u = svgUrl(renderSvg(doc, { ...ropts, appearance: 'default', size: 80 }));
     setThumb(u);
     return () => URL.revokeObjectURL(u);
-  }, [doc, tint, mask]);
+  }, [doc, ropts.tint, ropts.idiom]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && set({ exportOpen: false });
@@ -68,7 +71,7 @@ export function ExportSheet() {
   const run = async () => {
     setBusy(true);
     try {
-      const raster = browserRasterizer(doc, { tint, mask });
+      const raster = browserRasterizer(doc, { tint: ropts.tint!, effects: ropts.effects !== false });
       const files: FileMap = {};
       const put = (prefix: string, m: FileMap) => Object.entries(m).forEach(([k, v]) => (files[`${prefix}${k}`] = v));
       const wantCar = formats.car && actool && !!plat.compileCar;

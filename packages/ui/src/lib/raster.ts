@@ -1,4 +1,4 @@
-import type { Appearance, IconDocument, Rasterize } from '@fresnel/core';
+import type { Appearance, IconDocument, RasterOptions, Rasterize } from '@fresnel/core';
 import { renderSvg, type RenderOptions } from '@fresnel/render';
 
 export function svgUrl(svg: string): string {
@@ -33,5 +33,6 @@ export async function svgToPngBytes(svg: string, size: number): Promise<Uint8Arr
 }
 
 export function browserRasterizer(doc: IconDocument, opts: Omit<RenderOptions, 'appearance' | 'size'> = {}): Rasterize {
-  return (appearance: Appearance, size: number) => svgToPngBytes(renderSvg(doc, { ...opts, appearance, size }), size);
+  return (appearance: Appearance, size: number, ro?: RasterOptions) =>
+    svgToPngBytes(renderSvg(doc, { ...opts, appearance, size, ...(ro?.mask ? { mask: ro.mask, rim: ro.mask !== 'none' } : {}), ...(ro?.tint ? { tint: ro.tint } : {}) }), size);
 }

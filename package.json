@@ -15,7 +15,8 @@
     "test": "vitest run",
     "typecheck": "pnpm -r run typecheck",
     "fixtures": "tsx packages/cli/src/cli.ts build fixtures/sample.spec.json -o fixtures/Sample.icon",
-    "test:e2e": "pnpm --filter @fresnel/web build && pnpm --filter @fresnel/web exec playwright test"
+    "test:e2e": "pnpm --filter @fresnel/web build && pnpm --filter @fresnel/web exec playwright test",
+    "brand": "tsx scripts/brand.ts"
   },
   "devDependencies": {
     "@fresnel/core": "workspace:*",

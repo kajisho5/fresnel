@@ -62,12 +62,25 @@ function targetGroup(): string | null {
   return doc.groups[0]?.id ?? null;
 }
 
-export function addAssets(assets: Asset[]) {
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+
+/**
+ * Adds image layers. Like Icon Composer, files are ordered by name and names
+ * that count up ("1 back", "2 front") are stacked back to front. [推測]
+ */
+export function addAssets(assets: Asset[], groupName?: string) {
   const ok = assets.filter((a) => a.kind === 'svg' || a.kind === 'png' || a.kind === 'jpg');
   if (ok.length < assets.length) useUI.getState().toast('error', t('invalidFile'));
   if (!ok.length) return;
-  const ids = useDoc.getState().addLayers(targetGroup(), ok);
-  if (ids[0]) useUI.getState().select({ kind: 'layer', id: ids.at(-1)! });
+  const sorted = [...ok].sort(byName);
+  let gid: string | null = targetGroup();
+  if (groupName) {
+    const doc = useDoc.getState().doc;
+    gid = doc.groups.find((g) => (g.props.name?.plain?.value ?? '') === groupName)?.id ?? useDoc.getState().addGroup(groupName);
+  }
+  // addLayers puts its first item in front, so pass the highest name first
+  const ids = useDoc.getState().addLayers(gid, sorted.reverse());
+  if (ids.length) useUI.getState().select({ kind: 'layer', id: ids[0]! });
 }
 
 export async function importLayers() {
@@ -92,7 +105,21 @@ export async function handleDrop(dt: DataTransfer) {
       useDoc.getState().load(r.doc, { name: r.name, location: r.location, extra: r.extra });
       return;
     }
-    addAssets(await Promise.all(files.map(async (f) => makeAsset(f.name, new Uint8Array(await f.arrayBuffer())))));
+    // folders become groups (named after the folder), loose files go to the selected / default group
+    const groups = new Map<string, File[]>();
+    for (const f of files) {
+      const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+      const parts = rel.split('/');
+      const key = parts.length > 1 ? parts[parts.length - 2]! : '';
+      if (!/\.(svg|png|jpe?g)$/i.test(f.name)) continue;
+      groups.set(key, [...(groups.get(key) ?? []), f]);
+    }
+    if (!groups.size) throw new Error(t('invalidFile'));
+    const keys = [...groups.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    for (const k of keys) {
+      const assets = await Promise.all(groups.get(k)!.map(async (f) => makeAsset(f.name, new Uint8Array(await f.arrayBuffer()))));
+      addAssets(assets, k || undefined);
+    }
   } catch (e) {
     fail(e);
   }

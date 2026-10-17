@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import { APPEARANCES } from '@fresnel/core';
 import { useDoc, undo, redo } from './store/doc';
 import { useUI } from './store/ui';
 import { useLang } from './i18n';
 import { getPlatform, handleDrop, importLayers, newIcon, openIcon, save, setPlatform } from './actions';
+import { arrange, copyStyle, deleteSelection, duplicateSelection, groupSelection, nudge, pasteStyle, toggleVisible, ungroupSelection } from './commands';
+import { MenuHost, useMenu } from './components/Menu';
+import { initTheme } from './theme';
 import type { Platform } from './platform';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -20,14 +22,30 @@ function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      const typing = (e.target as HTMLElement).closest('input, textarea, select, [contenteditable]');
+      const target = e.target as HTMLElement;
+      const typing = !!target.closest('input, textarea, select, [contenteditable]');
       const ui = useUI.getState();
-      if (e.altKey && !mod && /^Digit[1-6]$/.test(e.code)) {
+      if (e.altKey && !mod && /^Digit[1-3]$/.test(e.code)) {
         e.preventDefault();
-        ui.set({ appearance: APPEARANCES[Number(e.code.slice(5)) - 1]! });
+        ui.set({ appearanceMode: (['default', 'dark', 'mono'] as const)[Number(e.code.slice(5)) - 1]! });
         return;
       }
-      if (!mod) return;
+      if (!mod) {
+        if (typing || useMenu.getState().open || ui.exportOpen) return;
+        if (e.key === 'Escape') {
+          ui.select({ kind: 'document' });
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+          if (ui.selection.kind !== 'document' && !target.closest('[role=tree]')) {
+            e.preventDefault();
+            deleteSelection();
+          }
+        } else if (e.key.startsWith('Arrow') && ui.selection.kind !== 'document' && !target.closest('[role=tree], [role=slider], [role=radiogroup]')) {
+          e.preventDefault();
+          const d = e.shiftKey ? 10 : 1;
+          nudge(e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0, e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0);
+        }
+        return;
+      }
       const k = e.key.toLowerCase();
       if (k === 'z' && !typing) {
         e.preventDefault();
@@ -51,19 +69,37 @@ function useShortcuts() {
       } else if (k === 'i' && e.shiftKey) {
         e.preventDefault();
         importLayers();
-      } else if (e.key === '1' || e.key === '2') {
+      } else if ((e.key === '1' || e.key === '2') && !e.shiftKey) {
         e.preventDefault();
         ui.set({ mode: e.key === '1' ? 'edit' : 'compare' });
-      } else if (k === 'g' && !typing) {
+      } else if (typing) {
+        return;
+      } else if (k === 'd') {
         e.preventDefault();
-        const sel = ui.selection;
-        if (sel.kind === 'layer') ui.select({ kind: 'group', id: useDoc.getState().groupLayer(sel.id) });
-      } else if ((e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0') && !typing) {
+        duplicateSelection();
+      } else if (k === 'g') {
         e.preventDefault();
-        if (e.key === '0') ui.set({ zoom: 'fit' });
+        if (e.shiftKey) ungroupSelection();
+        else groupSelection();
+      } else if (k === 'h' && e.shiftKey) {
+        e.preventDefault();
+        toggleVisible();
+      } else if (e.code === 'BracketRight' || e.code === 'BracketLeft') {
+        e.preventDefault();
+        arrange(e.code === 'BracketRight' ? -1 : 1);
+      } else if (e.altKey && e.code === 'KeyC') {
+        e.preventDefault();
+        copyStyle();
+      } else if (e.altKey && e.code === 'KeyV') {
+        e.preventDefault();
+        pasteStyle();
+      } else if (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0') {
+        e.preventDefault();
+        const zooms = [0.25, 0.5, 0.75, 1, 1.5, 2];
+        if (e.key === '0') ui.set({ zoom: 1, previewSize: 'fit' });
         else {
-          const z = ui.zoom === 'fit' ? 0.5 : ui.zoom;
-          ui.set({ zoom: Math.max(0.125, Math.min(1, e.key === '-' ? z / 2 : z * 2)) });
+          const i = zooms.indexOf(ui.zoom);
+          ui.set({ zoom: zooms[Math.max(0, Math.min(zooms.length - 1, (i < 0 ? 3 : i) + (e.key === '-' ? -1 : 1)))]! });
         }
       }
     };
@@ -123,6 +159,7 @@ export function App({ platform }: { platform?: Platform }) {
   const generation = useDoc((s) => s.generation);
   void generation;
 
+  useEffect(() => initTheme(), []);
   useEffect(() => {
     // HIG §A3: collapse panes on narrow windows
     if (window.innerWidth < 1180) set({ inspectorOpen: false });
@@ -163,6 +200,7 @@ export function App({ platform }: { platform?: Platform }) {
       <StatusBar />
       {exportOpen && <ExportSheet />}
       <Recovery />
+      <MenuHost />
       {dragging && <div className="pointer-events-none fixed inset-[52px_0_24px_0] z-40 rounded-lg border-2 border-dashed border-accent bg-accent/5" />}
       <Toasts />
     </div>

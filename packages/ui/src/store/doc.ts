@@ -10,7 +10,7 @@ import {
   removeNode,
   resetOverride,
   setProp,
-  type AppearanceKey,
+  type VariantArg,
   type Asset,
   type IconDocument,
   type NodeRef,
@@ -44,8 +44,8 @@ export interface DocState {
   /** generic mutation helper; returns the op's result */
   mutate<T>(fn: (d: IconDocument) => T): T;
 
-  setProp(ref: NodeRef, key: string, value: unknown, appearance?: AppearanceKey): void;
-  resetOverride(ref: NodeRef, key: string, appearance: AppearanceKey): void;
+  setProp(ref: NodeRef, key: string, value: unknown, variant?: VariantArg): void;
+  resetOverride(ref: NodeRef, key: string, variant: VariantArg): void;
   addGroup(name?: string, index?: number): string;
   addLayers(groupId: string | null, assets: Asset[]): string[];
   remove(ref: NodeRef): void;
@@ -94,8 +94,11 @@ export const useDoc = create<DocState>()(
       addLayers(groupId, assets) {
         return get().mutate((d) => {
           const gid = groupId && d.groups.some((g) => g.id === groupId) ? groupId : (d.groups[0]?.id ?? addGroup(d).id);
-          // add in reverse so the first file ends up frontmost
-          return [...assets].reverse().map((a) => addLayer(d, gid, a).id);
+          // add in reverse so the first file ends up frontmost; return ids front to back
+          return [...assets]
+            .reverse()
+            .map((a) => addLayer(d, gid, a).id)
+            .reverse();
         });
       },
       remove(ref) {

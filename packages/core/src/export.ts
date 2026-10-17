@@ -1,8 +1,16 @@
 import { strToU8 } from 'fflate';
 import type { Appearance } from './model';
+import { flattenPng } from './image';
+
+export interface RasterOptions {
+  /** "none" = full-bleed square (what Xcode / App Store expect for iOS); default squircle */
+  mask?: 'squircle' | 'circle' | 'none';
+  /** tint color for tinted appearances */
+  tint?: string;
+}
 
 /** Rasterizes the icon for an appearance at a pixel size and returns PNG bytes. */
-export type Rasterize = (appearance: Appearance, size: number) => Promise<Uint8Array>;
+export type Rasterize = (appearance: Appearance, size: number, opts?: RasterOptions) => Promise<Uint8Array>;
 
 /**
  * ICNS element types with PNG payloads.
@@ -57,9 +65,11 @@ export async function buildIcns(rasterize: Rasterize, appearance: Appearance = '
 export async function buildAppIconSet(rasterize: Rasterize): Promise<Record<string, Uint8Array>> {
   const files: Record<string, Uint8Array> = {};
   const images: Record<string, unknown>[] = [];
-  files['AppIcon.png'] = await rasterize('default', 1024);
-  files['AppIcon-Dark.png'] = await rasterize('dark', 1024);
-  files['AppIcon-Tinted.png'] = await rasterize('tinted-light', 1024);
+  // iOS: full-bleed squares (the system applies the mask; App Store icons must not be pre-masked).
+  // The tinted image is grayscale on dark, as Xcode expects for tinted appearances.
+  files['AppIcon.png'] = flattenPng(await rasterize('default', 1024, { mask: 'none' }));
+  files['AppIcon-Dark.png'] = flattenPng(await rasterize('dark', 1024, { mask: 'none' }));
+  files['AppIcon-Tinted.png'] = flattenPng(await rasterize('tinted-dark', 1024, { mask: 'none', tint: '#FFFFFF' }));
   images.push({ filename: 'AppIcon.png', idiom: 'universal', platform: 'ios', size: '1024x1024' });
   images.push({
     appearances: [{ appearance: 'luminosity', value: 'dark' }],
@@ -79,7 +89,8 @@ export async function buildAppIconSet(rasterize: Rasterize): Promise<Record<stri
     for (const scale of [1, 2]) {
       const px = pt * scale;
       const name = `mac-${pt}@${scale}x.png`;
-      files[name] = px === 1024 ? files['AppIcon.png']! : await rasterize('default', px);
+      // classic macOS icons carry their own shape
+      files[name] = await rasterize('default', px, { mask: 'squircle' });
       images.push({ filename: name, idiom: 'mac', scale: `${scale}x`, size: `${pt}x${pt}` });
     }
   }
@@ -93,6 +104,6 @@ export async function buildPngSet(
   sizes: number[],
 ): Promise<Record<string, Uint8Array>> {
   const files: Record<string, Uint8Array> = {};
-  for (const a of appearances) for (const s of sizes) files[`${a}/icon-${s}.png`] = await rasterize(a, s);
+  for (const a of appearances) for (const s of sizes) files[`${a}/icon-${s}.png`] = await rasterize(a, s, { mask: 'squircle' });
   return files;
 }

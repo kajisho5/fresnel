@@ -1,0 +1,65 @@
+{
+  "background": "gradient:#232A5C,#0A0B1A",
+  "darkBackground": "gradient:#141838,#05060E",
+  "groups": [
+    {
+      "name": "Lens",
+      "props": {
+        "translucency": {
+          "enabled": true,
+          "value": 0.12
+        },
+        "blur-material": 0.2,
+        "specular": true,
+        "shadow": {
+          "kind": "neutral",
+          "opacity": 0.5
+        }
+      },
+      "layers": [
+        {
+          "file": "lens.svg",
+          "name": "2 Lens",
+          "props": {
+            "glass": true,
+            "fill": {
+              "linear-gradient": [
+                "#FFFFFF",
+                "#CFDBFF"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rings",
+      "props": {
+        "translucency": {
+          "enabled": true,
+          "value": 0.15
+        },
+        "blur-material": 0.1,
+        "shadow": {
+          "kind": "neutral",
+          "opacity": 0.35
+        }
+      },
+      "layers": [
+        {
+          "file": "rings.svg",
+          "name": "1 Rings",
+          "props": {
+            "glass": true,
+            "fill": {
+              "linear-gradient": [
+                "#6E8BFF",
+                "#FF7AB6"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { beginGesture, endGesture } from '../store/doc';
 import { t } from '../i18n';
+import { evalNumber } from '../lib/geometry';
 
 export function cx(...c: (string | false | null | undefined)[]) {
   return c.filter(Boolean).join(' ');
@@ -89,6 +90,14 @@ export function NumberField({
   useEffect(() => {
     if (!focused.current) setText(format(value));
   }, [value, format]);
+  /** Accepts plain numbers and arithmetic like "35*3", "*2", "+10" (evaluated in display units). */
+  const parseInput = (raw: string): number => {
+    const direct = parse(raw);
+    if (Number.isFinite(direct) && !/[*/+]|.-/.test(raw.trim().replace(/%$/, ''))) return direct;
+    const shown = parseFloat(format(value).replace(/[^\d.\-]/g, ''));
+    const r = evalNumber(raw, Number.isFinite(shown) ? shown : value);
+    return Number.isFinite(r) ? parse(String(r)) : NaN;
+  };
   const commit = (v: number) => {
     if (!Number.isFinite(v)) {
       setText(format(value));
@@ -111,7 +120,7 @@ export function NumberField({
         }}
         onBlur={() => {
           focused.current = false;
-          commit(parse(text));
+          commit(parseInput(text));
         }}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
