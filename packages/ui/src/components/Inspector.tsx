@@ -30,7 +30,7 @@ import {
 } from '@fresnel/core';
 import { useDoc } from '../store/doc';
 import { APPEARANCE_MODE_LABEL, VARIANT_LABEL, currentAppearance, currentAppearanceKey, selectedRefs, useUI, type SectionKey } from '../store/ui';
-import { t, useLang } from '../i18n';
+import { getLang, t, useLang } from '../i18n';
 import { getPlatform } from '../actions';
 import { useRename } from '../commands';
 import { ColorWell, MixedCtx, NumberField, StepCtx, Segmented, Select, Slider, Toggle, cx } from './controls';
@@ -316,8 +316,17 @@ function ColorAlpha({ value, onChange, label }: { value: unknown; onChange: (c: 
   );
 }
 
+/** Japanese names as Apple uses them (Pixelmator Pro user guide, support.apple.com/ja-jp); plus-darker / plus-lighter have no Apple name [推測]. */
+const BLEND_JA: Record<string, string> = {
+  normal: '通常', multiply: '乗算', screen: 'スクリーン', overlay: 'オーバーレイ', darken: '比較（暗）', lighten: '比較（明）',
+  'color-dodge': '覆い焼き（カラー）', 'color-burn': '焼き込み（カラー）', 'soft-light': 'ソフトライト', 'hard-light': 'ハードライト',
+  difference: '差の絶対値', exclusion: '除外', hue: '色相', saturation: '彩度', color: 'カラー', luminosity: '輝度',
+  'plus-darker': 'プラス（暗）', 'plus-lighter': 'プラス（明）',
+};
+
 function BlendSelect({ value, set }: { value: string; set: (v: unknown) => void }) {
-  const opts = BLEND_MODES.map((m) => ({ value: m, label: m.replace(/(^|-)([a-z])/g, (_s, d, c: string) => (d ? ' ' : '') + c.toUpperCase()) }));
+  const en = (m: string) => m.replace(/(^|-)([a-z])/g, (_s, d, c: string) => (d ? ' ' : '') + c.toUpperCase());
+  const opts = BLEND_MODES.map((m) => ({ value: m, label: getLang() === 'ja' ? (BLEND_JA[m] ?? en(m)) : en(m) }));
   return <Select label={t('blendMode')} value={value} onChange={(v) => set(v === 'normal' ? null : v)} options={[opts[0]!, '---', ...opts.slice(1)]} />;
 }
 

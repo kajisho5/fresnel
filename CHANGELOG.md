@@ -9,6 +9,10 @@ All notable changes to fresnel are listed here. The format follows [Keep a Chang
 - SVG sanitizer: CSS escapes nested five or more times inside `<style>` could survive as markup; `image-set()` / `src()` URLs are removed; decoded style values are written back escaped.
 - Entity expansion in SVGs is capped.
 
+### Changed
+- Clear light and Clear dark use the Mono ("tinted") values, like Tinted; Dark values no longer leak into Clear dark. Apple renders Clear and Tinted from Mono, and Assets.car keeps only light, dark and tintable renditions.
+- Japanese UI follows Apple's terms: 色合い調整 (Tinted), 鏡面ハイライト (Specular), 透明度 (Translucency), 色付き (Chromatic), ブレンドモード with Apple's blend mode names.
+
 ### Fixed
 - Rendering: a layer far outside the canvas (or a huge scale) crashed the whole process (resvg panic); a broken or huge PNG no longer stops rendering; group opacity 0 left a "ghost" shadow and glass; Clear appearances now use the Mono fill override; a dark override for one platform no longer turns off automatic darkening on the others; watchOS Clear / Tinted were clipped at the edge; SVGs without colors count as dark for Automatic specular; automatic gradients on SVG layers follow the drawn shape; `blur-material: null` means off; unknown blend modes and non-numeric values in icon.json can't break the preview; one-color gradients; tint accepts #RGB / #RRGGBBAA.
 - macOS image template: the body is 824 px of 1024 as intended (was 856).

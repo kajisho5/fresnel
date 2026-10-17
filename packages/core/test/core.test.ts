@@ -64,7 +64,10 @@ describe('specialization resolution', () => {
   it('uses base entry for default and override for dark', () => {
     expect(resolveProp(front.props.translucency, { appearance: 'default' }, null)).toEqual({ enabled: true, value: 0.6 });
     expect(resolveProp(front.props.translucency, { appearance: 'dark' }, null)).toEqual({ enabled: true, value: 0.8 });
-    expect(resolveProp(front.props.translucency, { appearance: 'clear-dark' }, null)).toEqual({ enabled: true, value: 0.8 });
+    // Clear dark is rendered from Mono ("tinted"), not from Dark: without a tinted value it uses the base
+    expect(resolveProp(front.props.translucency, { appearance: 'clear-dark' }, null)).toEqual({ enabled: true, value: 0.6 });
+    const mono = { specs: [{ value: 1 }, { appearance: 'dark', value: 2 }, { appearance: 'tinted', value: 3 }, { appearance: 'light', value: 4 }] };
+    expect(['default', 'dark', 'clear-light', 'clear-dark', 'tinted-light', 'tinted-dark'].map((a) => resolveProp(mono, { appearance: a as 'dark' }, 0))).toEqual([4, 2, 3, 3, 3, 3]);
     expect(resolveProp(front.props.translucency, { appearance: 'tinted-light' }, null)).toEqual({ enabled: true, value: 0.6 });
   });
   it('falls back to plain value and then default', () => {

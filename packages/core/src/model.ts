@@ -26,8 +26,12 @@ export const APPEARANCE_LABEL: Record<Appearance, string> = {
 export function appearanceKeys(a: Appearance): AppearanceKey[] {
   switch (a) {
     case 'dark':
-    case 'clear-dark':
       return ['dark'];
+    // Clear and Tinted (light and dark) are all rendered from Icon Composer's Mono, written as "tinted".
+    // Apple: "For mono, you can preview clear and tinted variants"; Assets.car keeps only light / dark /
+    // tintable renditions. A dark value does not carry over to Clear dark [推測: strong].
+    case 'clear-light':
+    case 'clear-dark':
     case 'tinted-light':
     case 'tinted-dark':
       return ['tinted'];
