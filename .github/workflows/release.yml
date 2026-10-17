@@ -1,6 +1,9 @@
 # Release: push a tag like v0.1.0.
-#   1. desktop  : macOS (universal, Developer ID signed + notarized), Windows and Linux builds → draft GitHub release
-#   2. publish  : un-drafts the release once every build succeeded
+#   1. release  : creates one draft GitHub release for the tag (all builds upload into it; parallel jobs
+#                 creating their own drafts made v0.2.0's macOS files land in a second draft)
+#   2. desktop  : macOS (universal, Developer ID signed + notarized), Windows and Linux builds
+#   3. publish  : moves files from any duplicate drafts of the tag into the release, then un-drafts it
+#   Manual run with "publish_only" just repeats step 3 (to repair a release).
 # npm packages are published by npm.yml (on the tag push, or called from here on a manual run).
 # Manual run (Actions → Release → Run workflow, e.g. from the GitHub app): creates the tag on main first.
 #
@@ -19,6 +22,10 @@ on:
       tag:
         description: Version tag, e.g. v0.1.0 (created on main if it doesn't exist yet)
         required: true
+      publish_only:
+        description: Only merge duplicate drafts and publish (no builds, no npm)
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -30,7 +37,7 @@ jobs:
   # Manual runs create the tag on main (a tag pushed with GITHUB_TOKEN doesn't start other workflows,
   # so this workflow also calls npm.yml itself in that case).
   tag:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.publish_only
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -49,7 +56,7 @@ jobs:
 
   npm:
     needs: tag
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.publish_only
     uses: ./.github/workflows/npm.yml
     with:
       tag: ${{ github.event.inputs.tag }}
@@ -58,9 +65,35 @@ jobs:
       id-token: write
     secrets: inherit
 
-  desktop:
+  release:
     needs: tag
-    if: ${{ !cancelled() && (needs.tag.result == 'success' || needs.tag.result == 'skipped') }}
+    if: ${{ !cancelled() && !inputs.publish_only && (needs.tag.result == 'success' || needs.tag.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.draft.outputs.id }}
+    steps:
+      - name: Create (or reuse) the draft release
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq "[.[] | select(.tag_name == \"$TAG\")] | sort_by(.id) | .[0].id // empty")
+          if [ -z "$id" ]; then
+            id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$TAG" -f name="fresnel $TAG" -F draft=true \
+              -f body="Desktop apps for macOS (universal, signed and notarized), Windows and Linux. See the assets below.
+
+          - Web app: https://kajisho5.github.io/fresnel/
+          - CLI: \`npx fresnel-icon --help\`
+          - MCP server: \`npx -y fresnel-mcp --root ~/Icons\`
+          - What's new: https://github.com/kajisho5/fresnel/blob/main/CHANGELOG.md" --jq .id)
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "Release id: $id"
+
+  desktop:
+    needs: [tag, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -168,16 +201,7 @@ jobs:
         with:
           projectPath: apps/desktop
           tauriScript: pnpm tauri
-          tagName: ${{ env.TAG }}
-          releaseName: fresnel ${{ env.TAG }}
-          releaseBody: |
-            Desktop apps for macOS (universal, signed and notarized), Windows and Linux. See the assets below.
-
-            - Web app: https://kajisho5.github.io/fresnel/
-            - CLI: `npx fresnel-icon --help`
-            - MCP server: `npx -y fresnel-mcp --root ~/Icons`
-            - What's new: https://github.com/kajisho5/fresnel/blob/main/CHANGELOG.md
-          releaseDraft: true
+          releaseId: ${{ needs.release.outputs.id }}
           args: ${{ matrix.args }}
 
       - name: Verify macOS signature
@@ -196,10 +220,31 @@ jobs:
 
   publish:
     needs: [desktop, npm]
-    if: ${{ !cancelled() && needs.desktop.result == 'success' && (needs.npm.result == 'success' || needs.npm.result == 'skipped') }}
+    if: ${{ !cancelled() && (inputs.publish_only || (needs.desktop.result == 'success' && (needs.npm.result == 'success' || needs.npm.result == 'skipped'))) }}
     runs-on: ubuntu-latest
     steps:
-      - name: Publish the draft release
+      - name: Merge duplicate drafts and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          rels=$(gh api "repos/$repo/releases?per_page=100" --jq "[.[] | select(.tag_name == \"$TAG\")] | sort_by(.id)")
+          [ "$(jq length <<<"$rels")" -gt 0 ] || { echo "::error::No release for $TAG"; exit 1; }
+          # keep the published one if there is one, else the oldest draft
+          keep=$(jq -r '(map(select(.draft == false)) + .)[0].id' <<<"$rels")
+          have=$(gh api "repos/$repo/releases/$keep/assets?per_page=100" --jq '.[].name')
+          for dup in $(jq -r --argjson k "$keep" '.[] | select(.id != $k and .draft) | .id' <<<"$rels"); do
+            dir=$(mktemp -d)
+            for row in $(gh api "repos/$repo/releases/$dup/assets?per_page=100" --jq '.[] | "\(.id):\(.name)"'); do
+              aid=${row%%:*}; name=${row#*:}
+              if grep -qxF "$name" <<<"$have"; then continue; fi
+              gh api -H 'Accept: application/octet-stream' "repos/$repo/releases/assets/$aid" > "$dir/$name"
+              curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Content-Type: application/octet-stream' \
+                --data-binary "@$dir/$name" "https://uploads.github.com/repos/$repo/releases/$keep/assets?name=$name" > /dev/null
+              echo "moved $name from draft $dup"
+            done
+            gh api -X DELETE "repos/$repo/releases/$dup"
+            echo "deleted duplicate draft $dup"
+          done
+          gh api -X PATCH "repos/$repo/releases/$keep" -F draft=false -f make_latest=true --jq '.html_url'
