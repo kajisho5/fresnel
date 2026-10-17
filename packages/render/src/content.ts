@@ -55,11 +55,11 @@ export function contentBoxOf(asset: Asset): ContentBox | undefined {
   return undefined;
 }
 
-/** SVG assets drawn with a linear-gradient fill whose bounds aren't known yet. */
+/** SVG assets drawn with a gradient fill (linear or automatic) whose bounds aren't known yet. */
 export function svgAssetsNeedingBounds(doc: IconDocument): Asset[] {
   const out = new Set<Asset>();
   const hasGradient = (p: { plain?: { value: unknown }; specs?: { value: unknown }[] } | undefined) =>
-    [p?.plain?.value, ...(p?.specs ?? []).map((s) => s.value)].some((v) => !!v && typeof v === 'object' && 'linear-gradient' in (v as object));
+    [p?.plain?.value, ...(p?.specs ?? []).map((s) => s.value)].some((v) => !!v && typeof v === 'object' && ('linear-gradient' in (v as object) || 'automatic-gradient' in (v as object)));
   for (const g of doc.groups)
     for (const l of g.layers) {
       if (!hasGradient(l.props.fill)) continue;

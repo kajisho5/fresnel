@@ -7,8 +7,11 @@
  * tuned to look plausible; see docs/DESIGN.md §7.
  */
 import {
+  BLEND_MODES,
   CANVAS,
   FRONT_FIRST,
+  idiomsFor,
+  normalizeColorInput,
   isDarkAppearance,
   mimeOf,
   parseColor,
@@ -22,7 +25,6 @@ import {
   type GroupNode,
   type IconDocument,
   type LayerNode,
-  type Position,
   type RGBA,
   type ResolveCtx,
   type Shadow,
@@ -51,7 +53,7 @@ export interface RenderOptions {
   effects?: boolean;
   /** false = leave out the background (transparent) */
   background?: boolean;
-  /** transparent margin in points around the icon, with a drop shadow (classic macOS template) */
+  /** transparent margin around the icon, in points of the 1024 pt output, with a drop shadow (classic macOS template: 100 → an 824 pt body) */
   inset?: number;
 }
 
@@ -74,6 +76,8 @@ export function rasterRenderOptions(ro?: {
 }
 
 const C = CANVAS;
+/** Margin around the canvas for filter and mask regions: covers the watchOS pad and the macOS inset, and keeps blur buffers small (a region in % of an element far off the canvas crashed resvg). */
+const PAD = C / 4;
 const H = C / 2;
 
 const b64Cache = new WeakMap<Uint8Array, string>();
@@ -95,11 +99,40 @@ const b64 = (bytes: Uint8Array): string => {
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const n = (x: number) => +x.toFixed(3);
 
-function hexToRGBA(hex: string): RGBA {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return { r: 0.25, g: 0.65, b: 0.63, a: 1 };
-  const v = parseInt(m[1]!, 16);
-  return { r: ((v >> 16) & 255) / 255, g: ((v >> 8) & 255) / 255, b: (v & 255) / 255, a: 1 };
+const DEFAULT_TINT: RGBA = { r: 0.25, g: 0.65, b: 0.63, a: 1 };
+
+/** Tint color: #RGB, #RRGGBB, #RRGGBBAA or a color string ("srgb:…", "display-p3:…"). Anything else → the default tint. */
+function tintToRGBA(input: string): RGBA {
+  try {
+    const c = parseColor(normalizeColorInput(input));
+    return c ? { ...toRGBA(c), a: 1 } : DEFAULT_TINT;
+  } catch {
+    return DEFAULT_TINT;
+  }
+}
+
+/** A finite number, else the fallback (icon.json values aren't validated before rendering). */
+const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+
+/** Position with a positive finite scale and a finite [x, y] translation. */
+function safePosition(p: unknown): { scale: number; tx: number; ty: number } | null {
+  if (!p || typeof p !== 'object') return null;
+  const o = p as { scale?: unknown; 'translation-in-points'?: unknown };
+  const t = Array.isArray(o['translation-in-points']) ? o['translation-in-points'] : [];
+  const scale = num(o.scale, 1);
+  return { scale: scale > 0 ? scale : 1, tx: num(t[0], 0), ty: num(t[1], 0) };
+}
+
+/** Gradient orientation with numeric start/stop points, else undefined (top to bottom). */
+function safeOrientation(o: unknown): { start: { x: number; y: number }; stop: { x: number; y: number } } | undefined {
+  const pt = (v: unknown) => {
+    const q = v as { x?: unknown; y?: unknown } | null;
+    return q && typeof q === 'object' && Number.isFinite(q.x) && Number.isFinite(q.y) ? { x: q.x as number, y: q.y as number } : null;
+  };
+  const r = o as { start?: unknown; stop?: unknown } | null;
+  const start = r && typeof r === 'object' ? pt(r.start) : null;
+  const stop = r && typeof r === 'object' ? pt(r.stop) : null;
+  return start && stop ? { start, stop } : undefined;
 }
 
 const colorOf = (s: unknown): RGBA => {
@@ -152,10 +185,11 @@ function paintFor(fill: unknown, defs: Defs, box: { x: number; y: number; w: num
     const c = colorOf(f['automatic-gradient']);
     return lin(shade(c, 0.22), shade(c, -0.08));
   }
-  if (Array.isArray(f['linear-gradient'])) {
-    const [a, b] = f['linear-gradient'] as string[];
-    const o = f.orientation as { start: { x: number; y: number }; stop: { x: number; y: number } } | undefined;
-    return lin(colorOf(a), colorOf(b), o?.start, o?.stop);
+  if (Array.isArray(f['linear-gradient']) && f['linear-gradient'].length) {
+    const [a, b] = f['linear-gradient'] as unknown[];
+    const o = safeOrientation(f.orientation);
+    // a single color is a flat gradient of that color
+    return lin(colorOf(a), colorOf(b ?? a), o?.start, o?.stop);
   }
   return null;
 }
@@ -178,7 +212,10 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   const dark = isDarkAppearance(appearance);
   const isClear = appearance === 'clear-light' || appearance === 'clear-dark';
   const isTinted = appearance === 'tinted-light' || appearance === 'tinted-dark';
-  const tint = hexToRGBA(opts.tint ?? '#3FA7A0');
+  const tint = opts.tint ? tintToRGBA(opts.tint) : DEFAULT_TINT;
+  const idioms = idiomsFor(ctx.idiom);
+  /** A variant entry that applies to the platform being rendered. */
+  const forPlatform = (s: { idiom?: string }) => s.idiom === undefined || (idioms as string[]).includes(s.idiom);
   // Icon Composer's current generation lights icons from straight above (developer.apple.com/icon-composer)
   const angle = ((opts.lightAngle ?? 0) * Math.PI) / 180;
   const toLight = { x: Math.sin(angle), y: -Math.cos(angle) };
@@ -188,7 +225,8 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   // ------------------------------------------------------------ background
   const fillProp = doc.props.fill;
   let bgFill = resolveProp<unknown>(fillProp, ctx, 'automatic');
-  const darkOverridden = !!fillProp?.specs?.some((s) => s.appearance === 'dark');
+  // only a dark variant that applies to this platform turns off the system-generated darkening
+  const darkOverridden = !!fillProp?.specs?.some((s) => s.appearance === 'dark' && forPlatform(s));
   let darken = 0;
   if (dark && !darkOverridden && bgFill !== 'automatic' && bgFill !== 'system-dark' && bgFill !== 'none') darken = 0.62; // system-generated dark
   let bgPaint: string | null;
@@ -196,9 +234,11 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   const P = mask === 'circle' ? 32 : 0;
   const full = { x: -P, y: -P, w: C + 2 * P, h: C + 2 * P };
   // an explicit Mono ("tinted") fill override replaces the system-generated clear / tinted background [推測]
-  const monoOverride = (isClear || isTinted) && !!fillProp?.specs?.some((s) => s.appearance === 'tinted' || s.appearance === appearance);
+  // (Clear and Tinted are both "Mono" in Icon Composer, so the "tinted" variant is used for both)
+  const monoOverride = (isClear || isTinted) && !!fillProp?.specs?.some((s) => s.appearance === 'tinted' && forPlatform(s));
   if (monoOverride) {
-    bgPaint = paintFor(bgFill ?? 'automatic', defs, full, dark);
+    const mono = resolveProp<unknown>(fillProp, { appearance: dark ? 'tinted-dark' : 'tinted-light', idiom: ctx.idiom }, 'automatic');
+    bgPaint = paintFor(mono ?? 'automatic', defs, full, dark);
   } else if (isClear) {
     bgPaint = dark
       ? paintFor({ 'linear-gradient': ['srgb:0.24,0.25,0.28,0.92', 'srgb:0.11,0.12,0.13,0.92'] }, defs, full, true)
@@ -250,7 +290,10 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   }
 
   function drawGroup(g: GroupNode, backdropId: string): string | null {
-    const gpos = resolveProp<Position | null>(g.props.position, ctx, null);
+    const gp = safePosition(resolveProp<unknown>(g.props.position, ctx, null));
+    const gs = gp?.scale ?? 1;
+    const gtx = gp?.tx ?? 0;
+    const gty = gp?.ty ?? 0;
     const layers = FRONT_FIRST ? [...g.layers].reverse() : [...g.layers];
     const placed: Placed[] = [];
     for (const l of layers) {
@@ -258,14 +301,26 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
       const name = resolveProp<string>(l.props['image-name'], ctx, '');
       const asset = doc.assets[name];
       if (!asset || asset.kind === 'pdf' || asset.kind === 'other') continue;
-      const pos = resolveProp<Position | null>(l.props.position, ctx, null);
+      // images whose size couldn't be read (0×0, corrupt header) have nothing to draw
+      if (!(asset.width > 0 && asset.height > 0 && Number.isFinite(asset.width) && Number.isFinite(asset.height))) continue;
+      const pos = safePosition(resolveProp<unknown>(l.props.position, ctx, null));
       const s = pos?.scale ?? 1;
-      const [tx, ty] = pos?.['translation-in-points'] ?? [0, 0];
       const w = asset.width * s;
       const h = asset.height * s;
-      placed.push({ layer: l, asset, x: H + tx - w / 2, y: H + ty - h / 2, w, h });
+      const x = H + (pos?.tx ?? 0) - w / 2;
+      const y = H + (pos?.ty ?? 0) - h / 2;
+      // layers entirely off the canvas are skipped (they're clipped anyway, and huge offsets upset resvg)
+      const cx0 = H + gtx + (x - H) * gs;
+      const cy0 = H + gty + (y - H) * gs;
+      const cx1 = cx0 + w * gs;
+      const cy1 = cy0 + h * gs;
+      if (cx1 < -P || cy1 < -P || cx0 > C + P || cy0 > C + P) continue;
+      placed.push({ layer: l, asset, x, y, w, h });
     }
     if (!placed.length) return null;
+    // group opacity applies to everything the group draws (shadow, frosted backdrop, content, highlights)
+    const groupOpacity = Math.min(1, Math.max(0, num(resolveProp<unknown>(g.props.opacity, ctx, 1), 1)));
+    if (groupOpacity <= 0) return null;
 
     const imgId = new Map<string, string>();
     const layerEls: string[] = [];
@@ -284,8 +339,8 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
       const s = p.w / p.asset.width;
       const place = `transform="translate(${n(p.x)} ${n(p.y)}) scale(${n(s)})"`;
       const fill = resolveProp<Fill | null>(p.layer.props.fill, ctx, null);
-      const opacity = resolveProp<number>(p.layer.props.opacity, ctx, 1);
-      const blend = cssBlend(resolveProp<string>(p.layer.props['blend-mode'], ctx, 'normal'));
+      const opacity = Math.min(1, Math.max(0, num(resolveProp<unknown>(p.layer.props.opacity, ctx, 1), 1)));
+      const blend = cssBlend(resolveProp<unknown>(p.layer.props['blend-mode'], ctx, 'normal'));
       // gradients are measured against the drawn shape's bounds, not the whole image
       const cb = contentBoxOf(p.asset);
       const fbox = cb ? { x: p.x + cb.x * p.w, y: p.y + cb.y * p.h, w: cb.w * p.w, h: cb.h * p.h } : { x: p.x, y: p.y, w: p.w, h: p.h };
@@ -293,7 +348,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
       let el: string;
       if (paint) {
         const mid = defs.id('lm');
-        defs.add(`<mask id="${mid}" mask-type="alpha" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="-${C}" y="-${C}" width="${3 * C}" height="${3 * C}"><use href="#${iid}" ${place}/></mask>`);
+        defs.add(`<mask id="${mid}" mask-type="alpha" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="${-PAD}" y="${-PAD}" width="${C + 2 * PAD}" height="${C + 2 * PAD}"><use href="#${iid}" ${place}/></mask>`);
         el = `<rect x="${n(p.x)}" y="${n(p.y)}" width="${n(p.w)}" height="${n(p.h)}" fill="${paint}" mask="url(#${mid})"/>`;
       } else {
         el = `<use href="#${iid}" ${place}/>`;
@@ -307,26 +362,32 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
       }
     }
 
-    const gTransform = gpos
-      ? ` transform="translate(${n(H + (gpos['translation-in-points']?.[0] ?? 0))} ${n(H + (gpos['translation-in-points']?.[1] ?? 0))}) scale(${n(gpos.scale ?? 1)}) translate(${-H} ${-H})"`
-      : '';
+    const gTransform = gp ? ` transform="translate(${n(H + gtx)} ${n(H + gty)}) scale(${n(gs)}) translate(${-H} ${-H})"` : '';
+    // Filter regions are fixed in user space (canvas ±1024 pt), never relative to an element's bounds:
+    // resvg panics on huge relative regions (items far off the canvas), and this also caps memory.
+    const canvasRegion = `filterUnits="userSpaceOnUse" x="${-PAD}" y="${-PAD}" width="${C + 2 * PAD}" height="${C + 2 * PAD}"`;
+    // the same region expressed inside the group's transform (specular filters live there)
+    const gx0 = H + (-PAD - H - gtx) / gs;
+    const gy0 = H + (-PAD - H - gty) / gs;
+    const groupRegion = `filterUnits="userSpaceOnUse" x="${n(gx0)}" y="${n(gy0)}" width="${n((C + 2 * PAD) / gs)}" height="${n((C + 2 * PAD) / gs)}"`;
     const contentId = defs.id('gc');
     defs.add(`<g id="${contentId}"${gTransform}>${layerEls.join('')}</g>`);
     contentIds.push(contentId);
     const out: string[] = [];
 
     // shadow
-    const shadow = resolveProp<Shadow | null>(g.props.shadow, ctx, { kind: 'neutral', opacity: 0.5 });
+    const shadow0 = resolveProp<Shadow | null>(g.props.shadow, ctx, { kind: 'neutral', opacity: 0.5 });
+    const shadow = shadow0 && typeof shadow0 === 'object' ? { kind: shadow0.kind, opacity: Math.min(1, Math.max(0, num(shadow0.opacity, 0.5))) } : null;
     if (effects && shadow && shadow.kind !== 'none' && shadow.opacity > 0) {
       const fid = defs.id('sh');
       if (shadow.kind === 'neutral') {
         defs.add(
-          `<filter id="${fid}" x="-30%" y="-30%" width="160%" height="170%"><feGaussianBlur in="SourceAlpha" stdDeviation="16"/>` +
+          `<filter id="${fid}" ${canvasRegion}><feGaussianBlur in="SourceAlpha" stdDeviation="16"/>` +
             `<feOffset dy="14" result="b"/><feFlood flood-color="#000" flood-opacity="0.45"/><feComposite in2="b" operator="in"/></filter>`,
         );
       } else {
         defs.add(
-          `<filter id="${fid}" x="-30%" y="-30%" width="160%" height="170%"><feGaussianBlur in="SourceGraphic" stdDeviation="18"/>` +
+          `<filter id="${fid}" ${canvasRegion}><feGaussianBlur in="SourceGraphic" stdDeviation="18"/>` +
             `<feOffset dy="16"/><feColorMatrix type="matrix" values="0.75 0 0 0 0  0 0.75 0 0 0  0 0 0.75 0 0  0 0 0 0.8 0"/></filter>`,
         );
       }
@@ -334,27 +395,36 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
     }
 
     // translucency: frosted, slightly magnified backdrop seen through the group's shape
-    const tr = resolveProp<Translucency | null>(g.props.translucency, ctx, { enabled: true, value: 0.5 });
-    const blurMat = resolveProp<number | null>(g.props['blur-material'], ctx, null);
+    const tr0 = resolveProp<Translucency | null>(g.props.translucency, ctx, { enabled: true, value: 0.5 });
+    const tr = tr0 && typeof tr0 === 'object' ? { enabled: !!tr0.enabled, value: num(tr0.value, 0.5) } : null;
+    // absent = default amount (0.2); null = blur off (schema: "null = off")
+    const blurRaw = resolveProp<unknown>(g.props['blur-material'], ctx, undefined);
+    const blurMat = blurRaw === null ? null : num(blurRaw, 0.2);
     const translucent = effects && !!tr?.enabled && tr.value > 0;
-    const refr = resolveProp<{ enabled?: boolean; strength?: number; depth?: number } | null>(g.props.refractivity, ctx, null);
+    const refr0 = resolveProp<{ enabled?: boolean; strength?: number; depth?: number } | null>(g.props.refractivity, ctx, null);
+    const refr = refr0 && typeof refr0 === 'object' ? { enabled: !!refr0.enabled, strength: num(refr0.strength, 0), depth: num(refr0.depth, 0) } : null;
     const refracts = effects && !!refr?.enabled && glassEls.length > 0;
     if (translucent || refracts) {
       // refraction only applies to glass layers; translucency to the whole group
       const maskSrc = translucent ? `<use href="#${contentId}"/>` : `<g${gTransform}>${glassEls.join('')}</g>`;
       const mid = defs.id('gm');
-      defs.add(`<mask id="${mid}" mask-type="alpha" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="${C}" height="${C}">${maskSrc}</mask>`);
-      const fid = defs.id('bk');
-      const blurPx = 4 + (blurMat ?? 0.2) * 40 + (refracts ? (refr!.depth ?? 0) * 10 : 0);
-      defs.add(`<filter id="${fid}" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="${n(blurPx)}"/></filter>`);
-      const zoom = 1.02 + (refracts ? (refr!.strength ?? 0) * 0.12 : 0.015);
+      defs.add(`<mask id="${mid}" mask-type="alpha" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="${-PAD}" y="${-PAD}" width="${C + 2 * PAD}" height="${C + 2 * PAD}">${maskSrc}</mask>`);
+      const blurPx = Math.max(0, (blurMat === null ? 0 : 4 + blurMat * 40) + (refracts ? refr!.depth * 10 : 0));
+      let filterAttr = '';
+      if (blurPx > 0) {
+        const fid = defs.id('bk');
+        defs.add(`<filter id="${fid}" ${canvasRegion}><feGaussianBlur stdDeviation="${n(blurPx)}"/></filter>`);
+        filterAttr = ` filter="url(#${fid})"`;
+      }
+      const zoom = 1.02 + (refracts ? refr!.strength * 0.12 : 0.015);
       out.push(
-        `<g mask="url(#${mid})"><use href="#${backdropId}" filter="url(#${fid})" transform="translate(${H} ${H}) scale(${n(zoom)}) translate(${-H} ${-H})"/></g>`,
+        `<g mask="url(#${mid})"><use href="#${backdropId}"${filterAttr} transform="translate(${H} ${H}) scale(${n(zoom)}) translate(${-H} ${-H})"/></g>`,
       );
     }
 
     // content
-    const gOpacity = resolveProp<number>(g.props.opacity, ctx, 1) * (refracts && !translucent ? 1 - (refr!.strength ?? 0) * 0.3 : 1);
+    // (group opacity itself is applied to the whole group below)
+    const gOpacity = refracts && !translucent ? 1 - Math.min(1, Math.max(0, refr!.strength)) * 0.3 : 1;
     // translucency keeps color at the top of the shape and lets more of the background through toward the bottom
     let fadeMask = '';
     if (translucent) {
@@ -369,7 +439,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
       );
       fadeMask = ` mask="url(#${mid})"`;
     }
-    const gBlend = cssBlend(resolveProp<string>(g.props['blend-mode'], ctx, 'normal'));
+    const gBlend = cssBlend(resolveProp<unknown>(g.props['blend-mode'], ctx, 'normal'));
     out.push(
       `<g${fadeMask}${gOpacity < 1 ? ` opacity="${n(gOpacity)}"` : ''}${gBlend ? ` style="mix-blend-mode:${gBlend}"` : ''}><use href="#${contentId}"/></g>`,
     );
@@ -388,7 +458,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
       if (specular === 'outside') {
         // highlight band just outside the shape, on the side facing the light
         defs.add(
-          `<filter id="${fid}" x="-8%" y="-8%" width="116%" height="116%">` +
+          `<filter id="${fid}" ${groupRegion}>` +
             `<feMorphology in="SourceAlpha" operator="dilate" radius="6" result="d"/>` +
             `<feComposite in="d" in2="SourceAlpha" operator="out" result="band"/>` +
             `<feOffset in="SourceAlpha" dx="${n(-dx * 1.6)}" dy="${n(-dy * 1.6)}" result="lit"/>` +
@@ -397,7 +467,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
             `<feFlood flood-color="#fff" flood-opacity="0.8"/><feComposite in2="soft" operator="in"/></filter>`,
         );
       } else defs.add(
-        `<filter id="${fid}" x="-5%" y="-5%" width="110%" height="110%">` +
+        `<filter id="${fid}" ${groupRegion}>` +
           `<feOffset in="SourceAlpha" dx="${dx}" dy="${dy}" result="sh"/>` +
           `<feComposite in="SourceAlpha" in2="sh" operator="out" result="edge"/>` +
           `<feGaussianBlur in="edge" stdDeviation="1.6" result="soft"/>` +
@@ -413,7 +483,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
         : `<g filter="url(#${fid})">${glassEls.join('')}</g>`;
       out.push(`<g${gTransform}>${glass}</g>`);
     }
-    return out.join('');
+    return groupOpacity < 1 ? `<g opacity="${n(groupOpacity)}">${out.join('')}</g>` : out.join('');
   }
 
   // ------------------------------------------------------------ appearance transform of the foreground
@@ -439,7 +509,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
     // foreground = final stack masked by the union of all group shapes
     const mid = defs.id('fm');
     defs.add(
-      `<mask id="${mid}" mask-type="alpha" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="${C}" height="${C}">` +
+      `<mask id="${mid}" mask-type="alpha" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="${-PAD}" y="${-PAD}" width="${C + 2 * PAD}" height="${C + 2 * PAD}">` +
         contentIds.map((id) => `<use href="#${id}"/>`).join('') +
         `</mask>`,
     );
@@ -450,12 +520,15 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   const clipId = defs.id('clip');
   const shape = maskPath(mask);
   defs.add(`<clipPath id="${clipId}"><path d="${shape}"/></clipPath>`);
-  const M = Math.max(0, opts.inset ?? 0);
+  // inset is measured in the output (1024 pt) image: inset 100 → an 824 pt body. In viewBox units that is
+  // inset × C / (C − 2 × inset), because the viewBox grows by the margin on both sides.
+  const inset = Math.min(C / 2 - 1, Math.max(0, num(opts.inset, 0)));
+  const M = inset > 0 ? (inset * C) / (C - 2 * inset) : 0;
   if (M > 0) {
     // classic macOS template: the body casts a soft shadow onto the transparent margin
     const sid = defs.id('ish');
     defs.add(
-      `<filter id="${sid}" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur in="SourceAlpha" stdDeviation="${n(C * 0.012)}"/>` +
+      `<filter id="${sid}" ${'filterUnits="userSpaceOnUse"'} x="${-PAD}" y="${-PAD}" width="${C + 2 * PAD}" height="${C + 2 * PAD}"><feGaussianBlur in="SourceAlpha" stdDeviation="${n(C * 0.012)}"/>` +
         `<feOffset dy="${n(C * 0.012)}" result="b"/><feFlood flood-color="#000" flood-opacity="0.3"/><feComposite in2="b" operator="in" result="s"/>` +
         `<feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`,
     );
@@ -479,8 +552,11 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   );
 }
 
-function cssBlend(mode: string): string | null {
-  if (!mode || mode === 'normal') return null;
+const KNOWN_BLEND = new Set<string>(BLEND_MODES);
+
+/** CSS mix-blend-mode for an icon.json blend mode; unknown values (unvalidated files) are ignored. */
+function cssBlend(mode: unknown): string | null {
+  if (typeof mode !== 'string' || !KNOWN_BLEND.has(mode) || mode === 'normal') return null;
   if (mode === 'plus-lighter') return 'screen';
   if (mode === 'plus-darker') return 'multiply';
   return mode;

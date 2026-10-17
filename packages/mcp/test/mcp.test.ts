@@ -178,7 +178,8 @@ describe('fresnel-mcp over stdio', () => {
     // trailing slash and empty names
     expect((await call('icon_inspect', { path: 'Hunt.icon/' })).isError).toBeFalsy();
     expect((await call('icon_create', { path: '' })).isError).toBe(true);
-    expect((await call('icon_create', { path: 'sub/' })).isError).toBe(true);
+    // a trailing slash is ignored: "Sub/" is Sub.icon, never a hidden "Sub/.icon"
+    expect(json(await call('icon_create', { path: 'Sub/', dry_run: true })).created).toMatch(/[\\/]Sub\.icon$/);
     // platform variants are visible in the result
     r = await call('icon_set', { path: 'Hunt', target: 'G/S', props: { opacity: 0.3 }, platform: 'macOS' });
     expect(json(r).now.variants).toEqual([{ platform: 'macOS', values: { opacity: 0.3 } }]);

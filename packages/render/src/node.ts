@@ -18,6 +18,8 @@ async function resvg(): Promise<ResvgModule> {
 }
 
 export async function svgToPng(svg: string, width: number): Promise<Uint8Array> {
+  // resvg aborts the whole process (a Rust panic, not an exception) below 2 px
+  if (!(width >= 2)) throw new Error(`Image size must be at least 2 px (got ${width})`);
   const { Resvg } = await resvg();
   const r = new Resvg(svg, { fitTo: { mode: 'width', value: Math.round(width) }, font: { loadSystemFonts: true } });
   return new Uint8Array(r.render().asPng());

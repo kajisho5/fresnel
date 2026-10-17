@@ -33,7 +33,21 @@ function hexLuma(hex: string): number | null {
   return luminance({ r: v(0), g: v(2), b: v(4), a: 1 });
 }
 
-/** Average luminance of an image's visible pixels (PNG), or of the colors an SVG paints with. Defaults to white. */
+const NAMED: Record<string, number> = { white: 1, black: 0 };
+
+/** Luminance of an SVG paint value: #hex, rgb()/rgba() (numbers or %), white/black. Other names → null. */
+function paintLuma(v: string): number | null {
+  if (v.startsWith('#')) return hexLuma(v);
+  const m = /^rgba?\(\s*([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)/i.exec(v);
+  if (m) {
+    const ch = (x: string) => Math.min(1, Math.max(0, x.endsWith('%') ? Number(x.slice(0, -1)) / 100 : Number(x) / 255));
+    return luminance({ r: ch(m[1]!), g: ch(m[2]!), b: ch(m[3]!), a: 1 });
+  }
+  const named = NAMED[v.toLowerCase()];
+  return named ?? null;
+}
+
+/** Average luminance of an image's visible pixels (PNG), or of the colors an SVG paints with (black when it names none). */
 export function assetLuma(a: Asset): number {
   const hit = cache.get(a.bytes);
   if (hit !== undefined) return hit;
@@ -54,10 +68,12 @@ export function assetLuma(a: Asset): number {
     }
   } else if (a.kind === 'svg') {
     const text = new TextDecoder().decode(a.display ?? a.bytes);
-    const found = [...text.matchAll(/(?:fill|stop-color)\s*[:=]\s*["']?\s*(#[0-9a-f]{3,8})\b/gi)].map((m) => hexLuma(m[1]!)).filter((x): x is number => x !== null);
-    const named = [...text.matchAll(/(?:fill|stop-color)\s*[:=]\s*["']?\s*(white|black)\b/gi)].map((m) => (m[1]!.toLowerCase() === 'white' ? 1 : 0));
-    const all = [...found, ...named];
-    if (all.length) l = all.reduce((x, y) => x + y, 0) / all.length;
+    const paint = /(?:fill|stop-color)\s*[:=]\s*["']?\s*(rgba?\([^)]*\)|[^"';>\s]+)/gi;
+    const values = [...text.matchAll(paint)].map((m) => m[1]!.trim()).filter((v) => !/^(none|transparent|inherit|currentcolor|url\()/i.test(v));
+    const ls = values.map(paintLuma).filter((x): x is number => x !== null);
+    // SVG's default fill is black: an image that never names a color paints black
+    if (ls.length) l = ls.reduce((x, y) => x + y, 0) / ls.length;
+    else l = values.length ? 0.5 : 0;
   }
   cache.set(a.bytes, l);
   return l;

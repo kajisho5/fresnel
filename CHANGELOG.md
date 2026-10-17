@@ -4,6 +4,24 @@ All notable changes to fresnel are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Security
+- MCP / CLI `--root`: a dangling symbolic link (or a symlinked output folder) could redirect previews and exports outside the allowed roots.
+- SVG sanitizer: CSS escapes nested five or more times inside `<style>` could survive as markup; `image-set()` / `src()` URLs are removed; decoded style values are written back escaped.
+- Entity expansion in SVGs is capped.
+
+### Fixed
+- Rendering: a layer far outside the canvas (or a huge scale) crashed the whole process (resvg panic); a broken or huge PNG no longer stops rendering; group opacity 0 left a "ghost" shadow and glass; Clear appearances now use the Mono fill override; a dark override for one platform no longer turns off automatic darkening on the others; watchOS Clear / Tinted were clipped at the edge; SVGs without colors count as dark for Automatic specular; automatic gradients on SVG layers follow the drawn shape; `blur-material: null` means off; unknown blend modes and non-numeric values in icon.json can't break the preview; one-color gradients; tint accepts #RGB / #RRGGBBAA.
+- macOS image template: the body is 824 px of 1024 as intended (was 856).
+- Saving no longer deletes files in `Assets/` that fresnel couldn't read (e.g. `a:b.svg`), and deleting a layer keeps other bundled images nothing points at. icon.json is written last.
+- A nested `icon.json` (e.g. in a backup folder) is no longer read instead of the bundle's own; a truncated PNG no longer stops the bundle from opening; odd `*-specializations` keys round-trip.
+- Moving / aligning an item that has a platform or appearance variant moves the base and every variant together (it wrote a variant's value into the base); grouping keeps layers in place when the old group was moved or scaled; duplicate ids in a group request no longer drop a layer.
+- Names are unique regardless of case (matching how targets are resolved); "A/B" that matches both a group and a layer is reported as ambiguous; asset names are capped at 255 bytes and can't differ only in case.
+- Checks: V-08 counts dark / tinted variants limited to a platform; V-06 measures strokes in points; V-03 warns when a bitmap is scaled up (it warned at 1:1).
+- Editor: ⌘Z with a slider focused corrupted the undo history; a picked color could not be undone until the field lost focus; Escape in a number field now cancels; renaming the document then undoing cleared the unsaved mark; removing a variant (and blur in a variant) works; refraction can be turned off in a variant; "Vary for…" with several items starts each from its own value; watchOS selection outlines and dragging use the right values; dropping a group on a layer row lands where the line shows; Paste Style no longer copies position and visibility; shortcuts don't edit the document while the export sheet or a menu is open; arrow keys on a Mixed field step each item; ⇧-click on the canvas adds to the selection; `<html lang>` follows the UI language; a dropped folder is one undo step.
+- MCP: misspelt arguments are errors (inputs are strict); `icon_export`, `icon_render`, `icon_create` are no longer marked read-only; platform variants appear in `icon_inspect` and `icon_set` results; two simultaneous `icon_create` calls can't both win; trailing slashes in paths; `to_group` on a group is an error; `out_dir` inside the bundle is refused; `written` lists every file; empty `sizes` / `appearances` and invalid `tint` are rejected.
+- CLI: `--` ends options, booleans accept only true/false (1/0, yes/no, on/off), array flags can be repeated, `--args` objects merge, and `--help` / `--root` are no longer taken from another flag's value.
+- SPEC: the frozen surface now also catches narrowed types and ranges, removed output keys and changed CLI positionals.
+
 ## [0.2.0] - 2026-10-17
 
 ### Added

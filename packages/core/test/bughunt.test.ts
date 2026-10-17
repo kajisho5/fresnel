@@ -141,13 +141,13 @@ describe('ops', () => {
     const { doc, g } = docWith('a', 'b', 'c');
     setProp(doc, { kind: 'group', id: g.id }, 'position', { scale: 0.5, 'translation-in-points': [200, 0] });
     const ctx = { appearance: 'default' as const, idiom: 'iOS' as const };
-    const c = resolvePath(doc, 'G/c');
+    const c = resolvePath(doc, 'G/c') as { kind: 'layer'; id: string };
     const before = boxOf(doc, c, ctx)!;
     const ng = groupLayers(doc, [c.id, c.id]);
     expect(ng.layers).toHaveLength(1);
     expect(doc.groups.flatMap((x) => x.layers)).toHaveLength(3);
     expect(boxOf(doc, c, ctx)).toMatchObject({ x: before.x, w: before.w });
-    const b = resolvePath(doc, 'G/b');
+    const b = resolvePath(doc, 'G/b') as { kind: 'layer'; id: string };
     const b0 = boxOf(doc, b, ctx)!;
     groupLayer(doc, b.id);
     expect(boxOf(doc, b, ctx)).toMatchObject({ x: b0.x, w: b0.w });
