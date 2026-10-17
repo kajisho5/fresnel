@@ -4,14 +4,6 @@ All notable changes to fresnel are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
-### Added
-- User guide in English and Japanese (`docs/USER_GUIDE.md`, `docs/USER_GUIDE.ja.md`), plus contributing, security and issue templates.
-- `fresnel <command> --help` works for every command.
-
-### Changed
-- Fill and Layout settings use the full inspector width, so color values and the scale field are no longer cut off.
-- Work restored from autosave stays marked as unsaved, even after you undo.
-
 ## [0.1.0] - 2026-10-17
 
 First public version. The web app is live at https://kajisho5.github.io/fresnel/.
@@ -31,11 +23,19 @@ First public version. The web app is live at https://kajisho5.github.io/fresnel/
 - Lossless `icon.json` round trips, verified on files written by Icon Composer.
 - English and Japanese UI, dark and light themes.
 - Brand assets: logo, favicons, PWA icons, Open Graph and GitHub social images.
+- Desktop releases: macOS (universal, Developer ID signed and notarized), Windows and Linux.
+- npm packages `fresnel-icon` and `fresnel-mcp`, published with provenance.
+- User guide in English and Japanese (`docs/USER_GUIDE.md`, `docs/USER_GUIDE.ja.md`), plus contributing, security and issue templates.
+- `fresnel <command> --help` works for every command.
+
+### Fixed
+- Fill and Layout settings use the full inspector width, so color values and the scale field are no longer cut off.
+- Work restored from autosave stays marked as unsaved, even after you undo.
 
 ### Security
 - Saves never follow symbolic links inside a bundle (core, MCP and desktop).
 - Imported SVG is cleaned with a tokenizer and an allowlist (no scripts, event handlers, external references or animation).
 - The MCP server only reads and writes inside its `--root` folders.
 
-[Unreleased]: https://github.com/kajisho5/fresnel/compare/main...HEAD
-[0.1.0]: https://github.com/kajisho5/fresnel/commits/main
+[Unreleased]: https://github.com/kajisho5/fresnel/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/kajisho5/fresnel/releases/tag/v0.1.0

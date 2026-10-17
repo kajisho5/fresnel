@@ -1,15 +1,32 @@
-name: Release desktop app
+# Release: push a tag like v0.1.0.
+#   1. desktop  : macOS (universal, Developer ID signed + notarized), Windows and Linux builds → draft GitHub release
+#   2. publish  : un-drafts the release once every build succeeded
+# npm packages are published by npm.yml (same tag, or run it by hand).
+#
+# Secrets (distributed from kajisho5/runway by its sync-secrets workflow; see runway's README):
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64, APPLE_TEAM_ID  App Store Connect API key (notarization)
+#   MATCH_GIT_TOKEN                                               reads the shared Developer ID certificate in <owner>/hanger
+#   SIGNING_KEY_PASSWORD (optional)                               passphrase of the certificate's private key
+# Without the Apple secrets the macOS app is built unsigned.
+name: Release
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)build, e.g. v0.1.0
+        required: true
 
 permissions:
   contents: write
 
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
 jobs:
-  build:
+  desktop:
     strategy:
       fail-fast: false
       matrix:
@@ -23,6 +40,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
       - if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
@@ -39,21 +58,113 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
       - run: pnpm install --frozen-lockfile
+
+      # Developer ID certificate from hanger (same one runway's mac-notarize uses) + API key for notarytool.
+      - name: Prepare macOS signing
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          HANGER_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HANGER_TOKEN" ] || [ -z "$ASC_KEY_P8_BASE64" ] || [ -z "$ASC_KEY_ID" ] || [ -z "$ASC_ISSUER_ID" ]; then
+            echo "::warning::Apple signing secrets are missing: building an unsigned macOS app. Add this repo to kajisho5/runway's repos.txt."
+            exit 0
+          fi
+          dir="$RUNNER_TEMP/sign"; mkdir -p "$dir/keys"
+          # .p8 (PEM or base64) for notarization
+          python3 - "$dir/keys/AuthKey_$(printf '%s' "$ASC_KEY_ID" | tr -d '[:space:]').p8" <<'PY'
+          import base64, os, sys
+          raw = os.environ["ASC_KEY_P8_BASE64"]
+          pem = raw if "BEGIN PRIVATE KEY" in raw else base64.b64decode("".join(raw.split())).decode()
+          open(sys.argv[1], "w").write(pem.replace("\r\n", "\n").strip() + "\n")
+          PY
+          chmod 600 "$dir"/keys/*.p8
+          # shared Developer ID Application certificate
+          owner="${GITHUB_REPOSITORY%%/*}"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HANGER_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$auth"
+          git -c http.extraheader="$auth" clone --quiet --depth 1 "https://github.com/$owner/hanger.git" "$dir/hanger"
+          src="$dir/hanger/signing"
+          [ -f "$src/developer_id_application.cer" ] && [ -f "$src/devid.key.enc" ] || {
+            echo "::error::No Developer ID certificate in $owner/hanger. Run runway's apple-signing with create-developer-id."; exit 1; }
+          # decrypt the private key (same scheme as runway's asc.py: SIGNING_KEY_PASSWORD, else sha256 of the .p8 text)
+          python3 - "$src/devid.key.enc" "$dir/devid.key" <<'PY'
+          import base64, hashlib, os, subprocess, sys
+          src, dst = sys.argv[1], sys.argv[2]
+          explicit = os.environ.get("SIGNING_KEY_PASSWORD", "")
+          raw = os.environ["ASC_KEY_P8_BASE64"]
+          pem = raw if "BEGIN PRIVATE KEY" in raw else base64.b64decode("".join(raw.split())).decode()
+          pem = pem.replace("\r\n", "\n").strip() + "\n"
+          crlf = pem.replace("\n", "\r\n")
+          forms = [pem, pem.rstrip("\n"), raw, raw.strip(), raw.strip() + "\n", crlf, crlf.rstrip("\n"), crlf.rstrip("\r\n")]
+          cands = [explicit] if explicit else list(dict.fromkeys(hashlib.sha256(s.encode()).hexdigest() for s in forms))
+          for pw in cands:
+              r = subprocess.run(["openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-iter", "200000", "-in", src, "-out", dst,
+                                  "-pass", "env:RW_PASS"], env=dict(os.environ, RW_PASS=pw), capture_output=True)
+              if r.returncode == 0 and subprocess.run(["openssl", "pkey", "-in", dst, "-noout"], capture_output=True).returncode == 0:
+                  sys.exit(0)
+          print("::error::Could not decrypt the signing key (the .p8 may have changed; rerun runway's apple-signing).")
+          sys.exit(1)
+          PY
+          openssl x509 -inform DER -in "$src/developer_id_application.cer" -out "$dir/devid.pem"
+          identity=$(openssl x509 -in "$dir/devid.pem" -noout -subject -nameopt multiline | sed -n 's/^ *commonName *= *//p')
+          case "$identity" in "Developer ID Application:"*) ;; *) echo "::error::Unexpected certificate: $identity"; exit 1 ;; esac
+          p12pass="$(uuidgen)"
+          openssl pkcs12 -export -inkey "$dir/devid.key" -in "$dir/devid.pem" -name devid -out "$dir/devid.p12" -passout "pass:$p12pass"
+          echo "::add-mask::$p12pass"
+          {
+            echo "APPLE_CERTIFICATE=$(base64 < "$dir/devid.p12" | tr -d '\n')"
+            echo "APPLE_CERTIFICATE_PASSWORD=$p12pass"
+            echo "APPLE_SIGNING_IDENTITY=$identity"
+            echo "APPLE_API_ISSUER=$(printf '%s' "$ASC_ISSUER_ID" | tr -d '[:space:]')"
+            echo "APPLE_API_KEY=$(printf '%s' "$ASC_KEY_ID" | tr -d '[:space:]')"
+            echo "APPLE_API_KEY_PATH=$(ls "$dir"/keys/*.p8)"
+          } >> "$GITHUB_ENV"
+          rm -rf "$dir/devid.key" "$dir/devid.p12" "$dir/hanger"
+          echo "Signing as: $identity"
+
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS signing / notarization: set these secrets to sign (otherwise the app is unsigned).
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop
           tauriScript: pnpm tauri
-          tagName: ${{ github.ref_name }}
-          releaseName: fresnel ${{ github.ref_name }}
-          releaseBody: See the assets below. The web version runs at https://kajisho5.github.io/fresnel/
+          tagName: ${{ env.TAG }}
+          releaseName: fresnel ${{ env.TAG }}
+          releaseBody: |
+            Desktop apps for macOS (universal, signed and notarized), Windows and Linux. See the assets below.
+
+            - Web app: https://kajisho5.github.io/fresnel/
+            - CLI: `npx fresnel-icon --help`
+            - MCP server: `npx -y fresnel-mcp --root ~/Icons`
+            - What's new: https://github.com/kajisho5/fresnel/blob/main/CHANGELOG.md
           releaseDraft: true
           args: ${{ matrix.args }}
+
+      - name: Verify macOS signature
+        if: matrix.platform == 'macos-latest' && env.APPLE_SIGNING_IDENTITY != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=$(find apps/desktop/src-tauri/target -path '*bundle/macos/*.app' -maxdepth 6 | head -n 1)
+          codesign --verify --strict --deep --verbose=2 "$app"
+          spctl -a -vv -t exec "$app"
+          xcrun stapler validate "$app"
+
+      - name: Clean up
+        if: always() && matrix.platform == 'macos-latest'
+        run: rm -rf "$RUNNER_TEMP/sign"
+
+  publish:
+    needs: [desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
