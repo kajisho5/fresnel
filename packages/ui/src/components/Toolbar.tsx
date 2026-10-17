@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useStore } from 'zustand';
 import { FileText, Menu as MenuIcon, Paintbrush, PanelLeft, Redo2, Undo2 } from 'lucide-react';
-import { useDoc, undo, redo } from '../store/doc';
+import { useDoc, undo, redo, refreshDirty } from '../store/doc';
 import { useUI } from '../store/ui';
 import { getLang, setLang, t, useLang } from '../i18n';
 import { importLayers, newIcon, openIcon, openSample, save } from '../actions';
@@ -92,7 +92,10 @@ export function Toolbar() {
             defaultValue={name}
             onBlur={(e) => {
               const v = e.target.value.trim();
-              if (v && v !== name) useDoc.setState({ name: v, dirty: true });
+              if (v && v !== name) {
+                useDoc.setState({ name: v });
+                refreshDirty();
+              }
               setEditing(false);
             }}
             onKeyDown={(e) => {

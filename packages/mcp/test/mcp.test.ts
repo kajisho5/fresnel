@@ -154,4 +154,44 @@ describe('fresnel-mcp over stdio', () => {
     expect(r.moved).toBe(1);
     expect(r.positions[0].box.x).toBeCloseTo(r.positions[1].box.x);
   });
+
+  it('closes the holes found in the v0.2.0 bug hunt', async () => {
+    const { mkdir, symlink, writeFile } = await import('node:fs/promises');
+    const outside = join(dir, '..', `fresnel-outside-${Date.now()}`);
+    await mkdir(outside, { recursive: true });
+    await call('icon_create', { path: 'Hunt.icon' });
+    await call('icon_add_layer', { path: 'Hunt', group: 'G', svg: STAR, name: 'S' });
+    // a dangling symlink inside the root must not let a preview be written outside it
+    await symlink(join(outside, 'pwn.png'), join(dir, 'dangle.png'));
+    let r = await call('icon_render', { path: 'Hunt', size: 32, out: 'dangle.png' });
+    expect(r.isError).toBe(true);
+    // an output folder that is a symlink to the outside is refused too
+    await mkdir(join(dir, 'build2'), { recursive: true });
+    await symlink(join(outside, 'set'), join(dir, 'build2', 'AppIcon.appiconset'));
+    r = await call('icon_export', { path: 'Hunt', out_dir: 'build2', formats: ['appiconset'] });
+    expect(r.isError).toBe(true);
+    expect(await readdir(outside)).toEqual([]);
+    // misspelt arguments are errors, not silently ignored
+    r = await call('icon_add_group', { path: 'Hunt', name: 'Typo', dryRun: true });
+    expect(r.isError).toBe(true);
+    expect(JSON.stringify(json(await call('icon_inspect', { path: 'Hunt' })))).not.toContain('Typo');
+    // trailing slash and empty names
+    expect((await call('icon_inspect', { path: 'Hunt.icon/' })).isError).toBeFalsy();
+    expect((await call('icon_create', { path: '' })).isError).toBe(true);
+    expect((await call('icon_create', { path: 'sub/' })).isError).toBe(true);
+    // platform variants are visible in the result
+    r = await call('icon_set', { path: 'Hunt', target: 'G/S', props: { opacity: 0.3 }, platform: 'macOS' });
+    expect(json(r).now.variants).toEqual([{ platform: 'macOS', values: { opacity: 0.3 } }]);
+    // groups can't take to_group; out_dir inside the bundle and bad tints are refused
+    expect((await call('icon_move', { path: 'Hunt', target: 'G', index: 0, to_group: 'G' })).isError).toBe(true);
+    expect((await call('icon_export', { path: 'Hunt', out_dir: 'Hunt.icon/x', formats: ['icns'] })).isError).toBe(true);
+    expect((await call('icon_render', { path: 'Hunt', tint: 'banana' })).isError).toBe(true);
+    // two creates at once: exactly one wins
+    const both = await Promise.all([call('icon_create', { path: 'Race', background: '#ff0000' }), call('icon_create', { path: 'Race.icon', background: '#0000ff' })]);
+    expect(both.filter((x) => !x.isError)).toHaveLength(1);
+    // export reports every file it wrote, including files carried in the bundle
+    await writeFile(join(dir, 'Hunt.icon', 'notes.txt'), 'hi');
+    r = await call('icon_export', { path: 'Hunt', out_dir: 'exp', formats: ['icon'] });
+    expect(json(r).written.some((p: string) => p.endsWith('notes.txt'))).toBe(true);
+  }, 60_000);
 });

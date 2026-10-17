@@ -8,7 +8,7 @@
  * See docs/design/spec.md.
  */
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { z } from 'zod';
 import {
   APPEARANCES,
@@ -72,6 +72,8 @@ export interface ToolDef<S extends z.ZodRawShape = z.ZodRawShape> {
   /** Output shape. Loose objects: adding keys is compatible. */
   output: z.ZodType;
   mutates_input: boolean;
+  /** Writes files other than the input bundle (new bundles, exports, saved previews). */
+  writes_files: boolean;
   idempotency_hint: 'idempotent' | 'not-idempotent';
   destructive?: boolean;
   supports_dry_run: boolean;
@@ -96,9 +98,14 @@ const dryRunArg = z.boolean().optional().describe('Validate and report the resul
 const loose = <T extends z.ZodRawShape>(shape: T) => z.looseObject(shape);
 const groupsOutline = z.array(z.looseObject({ group: z.string(), layers: z.array(z.string()) }));
 
+/**
+ * Base values, `overrides` per appearance (dark, tinted) and `variants` for values limited to a
+ * platform (with or without an appearance), e.g. {"platform": "macOS", "values": {"opacity": 0.3}}.
+ */
 function describeProps(props: PropMap) {
   const base: Record<string, unknown> = {};
   const overrides: Partial<Record<AppearanceKey, Record<string, unknown>>> = {};
+  const variants = new Map<string, { appearance?: string; platform: string; values: Record<string, unknown> }>();
   for (const [k, p] of Object.entries(props)) {
     const b = p.specs?.find((s) => s.appearance === undefined && s.idiom === undefined);
     if (b) base[k] = b.value;
@@ -107,22 +114,33 @@ function describeProps(props: PropMap) {
       const s = p.specs!.find((e) => e.appearance === a && e.idiom === undefined)!;
       (overrides[a] ??= {})[k] = s.value;
     }
+    for (const s of p.specs ?? []) {
+      if (s.idiom === undefined) continue;
+      const key = `${s.appearance ?? ''}|${s.idiom}`;
+      if (!variants.has(key)) variants.set(key, { ...(s.appearance ? { appearance: s.appearance } : {}), platform: s.idiom, values: {} });
+      variants.get(key)!.values[k] = s.value;
+    }
   }
-  return Object.keys(overrides).length ? { ...base, overrides } : base;
+  return {
+    ...base,
+    ...(Object.keys(overrides).length ? { overrides } : {}),
+    ...(variants.size ? { variants: [...variants.values()] } : {}),
+  };
 }
 
 export function inspect(doc: IconDocument) {
   return {
     order: 'groups and layers are listed front to back (index 0 = frontmost)',
     document: describeProps(doc.props),
+    // attributes first, so an unknown key in the file (e.g. "target") can't replace these fields
     groups: doc.groups.map((g, gi) => ({
+      ...describeProps(g.props),
       target: nameOf(g) || `#${gi}`,
       index: gi,
-      ...describeProps(g.props),
       layers: g.layers.map((l, li) => ({
+        ...describeProps(l.props),
         target: `${nameOf(g) || `#${gi}`}/${nameOf(l) || `#${li}`}`,
         index: li,
-        ...describeProps(l.props),
       })),
     })),
     assets: Object.values(doc.assets).map((a) => ({ name: a.name, kind: a.kind, width: a.width, height: a.height })),
@@ -143,9 +161,8 @@ function targetLabel(doc: IconDocument, ref: NodeRef): string {
 
 async function saveFile(ws: Workspace, out: string, bytes: Uint8Array): Promise<string> {
   const p = await ws.resolve(out);
-  await mkdir(dirname(p), { recursive: true });
-  await writeFile(p, bytes);
-  return p;
+  // never write through a link (ws.resolve already refuses dangling ones)
+  return (await writeFiles(dirname(p), { [basename(p)]: bytes }))[0]!;
 }
 
 const inspectOutput = loose({ order: z.string(), document: z.record(z.string(), z.unknown()), groups: z.array(z.looseObject({ target: z.string(), index: z.number() })), assets: z.array(z.looseObject({ name: z.string() })) });
@@ -178,7 +195,9 @@ export const TOOLS: ToolDef[] = [
     },
     output: loose({ created: z.string(), dry_run: z.boolean().optional(), groups: z.array(z.unknown()) }),
     mutates_input: true,
+    writes_files: true,
     idempotency_hint: 'not-idempotent',
+    destructive: true,
     supports_dry_run: true,
     verification: ['icon_inspect shows the document fill', 'icon_render_sheet shows the background in all appearances'],
     requires_visual_verification: false,
@@ -186,14 +205,17 @@ export const TOOLS: ToolDef[] = [
     async run(ws, { path, background, dark_background, watch, overwrite, dry_run }) {
       if (/\.zip$/i.test(path.trim())) throw new Error('icon_create writes an .icon folder; pass a path without .zip (use icon_export to make a zip)');
       const full = await ws.iconPath(path);
-      const exists = await stat(full).then(() => true, () => false);
-      if (exists && !overwrite) throw new Error(`${path} already exists. Pass overwrite: true to replace it.`);
       const doc = createDocument({
         ...(background ? { background } : {}),
         platforms: watch === false ? { squares: 'shared' } : { circles: ['watchOS'], squares: 'shared' },
       });
       if (dark_background) setProp(doc, { kind: 'document' }, 'fill', dark_background, 'dark');
-      if (!dry_run) await ws.withLock(full, () => saveIcon(full, doc));
+      // the existence check and the write happen under one lock, so two creates can't both "win"
+      await ws.withLock(full, async () => {
+        const exists = await stat(full).then(() => true, () => false);
+        if (exists && !overwrite) throw new Error(`${path} already exists. Pass overwrite: true to replace it.`);
+        if (!dry_run) await saveIcon(full, doc);
+      });
       return { data: { created: full, ...(dry_run ? { dry_run: true } : {}), ...inspect(doc) } };
     },
   }),
@@ -210,6 +232,7 @@ export const TOOLS: ToolDef[] = [
     input: { path: pathArg },
     output: inspectOutput,
     mutates_input: false,
+    writes_files: false,
     idempotency_hint: 'idempotent',
     supports_dry_run: false,
     verification: [],
@@ -239,6 +262,7 @@ export const TOOLS: ToolDef[] = [
     },
     output: loose({ added: z.string(), groups: z.array(z.string()) }),
     mutates_input: true,
+    writes_files: false,
     idempotency_hint: 'not-idempotent',
     supports_dry_run: true,
     verification: ['icon_inspect lists the new group'],
@@ -288,6 +312,7 @@ export const TOOLS: ToolDef[] = [
     },
     output: loose({ added: z.string(), size: z.string(), warnings: z.array(z.string()) }),
     mutates_input: true,
+    writes_files: false,
     idempotency_hint: 'not-idempotent',
     supports_dry_run: true,
     verification: ['Check `warnings` (V-01…V-10)', 'icon_render_sheet to see the layer in every appearance'],
@@ -369,6 +394,7 @@ export const TOOLS: ToolDef[] = [
     },
     output: loose({ target: z.string(), now: z.record(z.string(), z.unknown()) }),
     mutates_input: true,
+    writes_files: false,
     idempotency_hint: 'idempotent',
     supports_dry_run: true,
     verification: ['`now` shows the stored values', 'icon_render_sheet for the appearances you changed'],
@@ -405,6 +431,7 @@ export const TOOLS: ToolDef[] = [
     input: { path: pathArg, target: z.string(), index: z.number().int().min(0), to_group: z.string().optional(), dry_run: dryRunArg },
     output: loose({ groups: groupsOutline }),
     mutates_input: true,
+    writes_files: false,
     idempotency_hint: 'idempotent',
     supports_dry_run: true,
     verification: ['`groups` lists the new order (front to back)'],
@@ -418,6 +445,7 @@ export const TOOLS: ToolDef[] = [
           const ref = resolvePath(doc, target);
           let gid: string | undefined;
           if (to_group) {
+            if (ref.kind !== 'layer') throw new Error('to_group only applies to layers; groups are reordered with index');
             const g = resolvePath(doc, to_group);
             if (g.kind !== 'group') throw new Error('to_group must be a group');
             gid = g.id;
@@ -452,6 +480,7 @@ export const TOOLS: ToolDef[] = [
     },
     output: loose({ moved: z.number(), positions: z.array(z.looseObject({ target: z.string() })) }),
     mutates_input: true,
+    writes_files: false,
     idempotency_hint: 'idempotent',
     supports_dry_run: true,
     verification: ['`positions` gives each bounding box in canvas points', 'icon_render to look at the result'],
@@ -490,6 +519,7 @@ export const TOOLS: ToolDef[] = [
     input: { path: pathArg, target: z.string(), dry_run: dryRunArg },
     output: loose({ removed: z.string(), groups: groupsOutline }),
     mutates_input: true,
+    writes_files: false,
     idempotency_hint: 'not-idempotent',
     destructive: true,
     supports_dry_run: true,
@@ -527,6 +557,7 @@ export const TOOLS: ToolDef[] = [
       issues: z.array(z.looseObject({ id: z.string(), severity: z.enum(['error', 'warning', 'info']), message: z.string() })),
     }),
     mutates_input: false,
+    writes_files: false,
     idempotency_hint: 'idempotent',
     supports_dry_run: false,
     verification: ['No issue with severity "error"'],
@@ -554,12 +585,13 @@ export const TOOLS: ToolDef[] = [
       platform: z.enum(['iOS', 'macOS', 'watchOS']).optional().describe('Default: iOS. watchOS renders a circle'),
       size: z.number().int().min(16).max(2048).optional().describe('Pixels, default 512'),
       mask: maskEnum.optional(),
-      tint: z.string().optional().describe('Tint color for tinted appearances, "#RRGGBB"'),
+      tint: z.string().regex(/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i, 'tint must be a color like "#33AAFF"').optional().describe('Tint color for tinted appearances, "#RRGGBB"'),
       light_angle: z.number().min(-180).max(180).optional().describe('Light direction in degrees, 0 = top (default), -45 = top-left'),
       out: z.string().optional().describe('Save the PNG to this path'),
     },
     output: loose({ appearance: z.string(), saved: z.string().optional() }),
     mutates_input: false,
+    writes_files: true,
     idempotency_hint: 'idempotent',
     supports_dry_run: false,
     verification: ['Look at the returned image'],
@@ -593,11 +625,12 @@ export const TOOLS: ToolDef[] = [
     input: {
       path: pathArg,
       cell: z.number().int().min(96).max(600).optional().describe('Cell size in pixels, default 240'),
-      tint: z.string().optional(),
+      tint: z.string().regex(/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i, 'tint must be a color like "#33AAFF"').optional().describe('Tint color for tinted appearances, "#RRGGBB"'),
       out: z.string().optional(),
     },
     output: loose({ appearances: z.array(z.string()), saved: z.string().optional() }),
     mutates_input: false,
+    writes_files: true,
     idempotency_hint: 'idempotent',
     supports_dry_run: false,
     verification: ['Look at the returned image: every appearance should stay legible'],
@@ -627,12 +660,14 @@ export const TOOLS: ToolDef[] = [
       path: pathArg,
       out_dir: z.string(),
       formats: z.array(z.enum(['icon', 'icns', 'appiconset', 'png'])).min(1),
-      sizes: z.array(z.number().int().min(16).max(2048)).optional().describe('PNG sizes, default [1024, 512, 256, 128, 64, 32, 16]'),
-      appearances: z.array(appearanceEnum).optional().describe('PNG appearances, default all six'),
+      sizes: z.array(z.number().int().min(16).max(2048)).min(1).optional().describe('PNG sizes, default [1024, 512, 256, 128, 64, 32, 16]'),
+      appearances: z.array(appearanceEnum).min(1).optional().describe('PNG appearances, default all six'),
     },
     output: loose({ out_dir: z.string(), files: z.number(), written: z.array(z.string()) }),
     mutates_input: false,
+    writes_files: true,
     idempotency_hint: 'idempotent',
+    destructive: true,
     supports_dry_run: false,
     verification: ['`written` lists every file', 'Open the .icon in Icon Composer / Xcode 26 on a Mac for the final check'],
     requires_visual_verification: false,
@@ -640,6 +675,9 @@ export const TOOLS: ToolDef[] = [
     async run(ws, { path, out_dir, formats, sizes, appearances }) {
       const full = await ws.iconPath(path, { mustExist: true });
       const outDir = await ws.resolve(out_dir);
+      const inside = relative(full, outDir);
+      if (inside === '' || (!inside.startsWith(`..${sep}`) && inside !== '..' && !isAbsolute(inside)))
+        throw new Error('out_dir is inside the icon bundle; choose a folder outside it');
       const doc = await ws.read(full);
       const name = basename(full).replace(/\.icon(\.zip)?$/, '');
       const raster = nodeRasterizer(doc);
@@ -648,16 +686,10 @@ export const TOOLS: ToolDef[] = [
         throw new Error(`These visible layers can't be rendered and would be missing from the images: ${missing.join(', ')}. Fix them first (icon_validate).`);
       const written: string[] = [];
       if (formats.includes('icon')) {
-        const dest = join(outDir, `${name}.icon`);
-        await saveIcon(dest, doc);
-        written.push(join(dest, 'icon.json'), ...Object.keys(doc.assets).map((a) => join(dest, 'Assets', a)));
+        written.push(...(await saveIcon(join(outDir, `${name}.icon`), doc)));
       }
-      if (formats.includes('icns')) {
-        const p = join(outDir, `${name}.icns`);
-        await mkdir(dirname(p), { recursive: true });
-        await writeFile(p, await buildIcns(raster));
-        written.push(p);
-      }
+      // writeFiles refuses symbolic links, so an export can't be redirected outside out_dir
+      if (formats.includes('icns')) written.push(...(await writeFiles(outDir, { [`${name}.icns`]: await buildIcns(raster) })));
       if (formats.includes('appiconset')) written.push(...(await writeFiles(join(outDir, 'AppIcon.appiconset'), await buildAppIconSet(raster, { watch: targetsWatch(doc) }))));
       if (formats.includes('png'))
         written.push(

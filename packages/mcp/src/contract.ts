@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 import { DOCUMENT_ATTRS, GROUP_ATTRS, LAYER_ATTRS, type AttrDef } from '@fresnel/core';
-import { argsOf, cliCommand, exampleCommand, LEGACY_COMMANDS, usage, type ArgKind } from './cliargs';
+import { cliCommand, exampleCommand, LEGACY_COMMANDS, usage } from './cliargs';
 import { CONTRACT_VERSION, TOOLS, type ToolDef } from './spec';
 import { VERSION } from './version';
 
@@ -46,6 +46,7 @@ export function toolSpec(t: ToolDef) {
     input_schema: jsonSchema(z.object(t.input).strict(), 'input'),
     output_schema: jsonSchema(t.output, 'output'),
     mutates_input: t.mutates_input,
+    writes_files: t.writes_files,
     idempotency_hint: t.idempotency_hint,
     destructive: !!t.destructive,
     supports_dry_run: t.supports_dry_run,
@@ -79,7 +80,7 @@ export function buildContract() {
       rule: 'Breaking changes bump contract_version to the next major. The frozen surface (packages/mcp/spec/surface.json) makes CI fail otherwise.',
     },
     tools: TOOLS.map(toolSpec),
-    capability_map: Object.fromEntries(Object.entries(capability_map).sort(([a], [b]) => a.localeCompare(b))),
+    capability_map: Object.fromEntries(Object.entries(capability_map).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))),
     resources: RESOURCES,
     prompts: PROMPTS,
     icon_json: { document: attrTable(DOCUMENT_ATTRS), group: attrTable(GROUP_ATTRS), layer: attrTable(LAYER_ATTRS) },
@@ -89,33 +90,81 @@ export function buildContract() {
 
 // ------------------------------------------------------------ frozen surface
 
-type SurfaceKind = { type: string; values?: string[]; of?: SurfaceKind };
+type Json = Record<string, unknown>;
 export interface Surface {
   contract_version: string;
-  tools: Record<string, { cli: string; args: Record<string, { kind: SurfaceKind; required: boolean }> }>;
+  tools: Record<string, { cli: string; positional: string[]; args: Record<string, { required: boolean; schema: Json }>; output_keys: string[] }>;
 }
 
-const surfaceKind = (k: ArgKind): SurfaceKind =>
-  k.type === 'enum' ? { type: 'enum', values: [...k.values].sort() } : k.type === 'array' ? { type: 'array', of: surfaceKind(k.of) } : { type: k.type === 'number' ? 'number' : k.type };
+/** JSON Schema without prose (descriptions may change freely). */
+function bare(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(bare);
+  if (v && typeof v === 'object') {
+    const o: Json = {};
+    for (const [k, x] of Object.entries(v as Json)) if (k !== 'description' && k !== '$schema') o[k] = bare(x);
+    return o;
+  }
+  return v;
+}
 
 export function buildSurface(): Surface {
   return {
     contract_version: CONTRACT_VERSION,
     tools: Object.fromEntries(
-      TOOLS.map((t) => [t.id, { cli: t.cli, args: Object.fromEntries(argsOf(t).map((a) => [a.name, { kind: surfaceKind(a.kind), required: a.required }])) }]),
+      TOOLS.map((t) => {
+        const input = jsonSchema(z.object(t.input).strict(), 'input') as { properties: Record<string, Json>; required?: string[] };
+        const output = jsonSchema(t.output, 'output') as { properties?: Record<string, unknown>; required?: string[] };
+        return [
+          t.id,
+          {
+            cli: t.cli,
+            positional: [...(t.positional ?? [])],
+            args: Object.fromEntries(Object.entries(input.properties).map(([k, v]) => [k, { required: (input.required ?? []).includes(k), schema: bare(v) as Json }])),
+            // keys every result is promised to have
+            output_keys: [...(output.required ?? [])].sort(),
+          },
+        ];
+      }),
     ),
   };
+}
+
+const types = (s: Json): string[] => (Array.isArray(s.type) ? (s.type as string[]) : s.type ? [s.type as string] : []);
+
+/** Ways `now` accepts less than `was` (a caller that worked before would now fail). */
+function schemaBreaks(path: string, was: Json, now: Json, out: string[]) {
+  // anyOf / unknown shapes: compare as a whole
+  if (was.anyOf || now.anyOf || was.oneOf || now.oneOf) {
+    if (JSON.stringify(was) !== JSON.stringify(now)) out.push(`${path}: schema changed`);
+    return;
+  }
+  const wt = types(was);
+  const nt = types(now);
+  for (const t of wt) {
+    const ok = nt.length === 0 || nt.includes(t) || (t === 'integer' && nt.includes('number'));
+    if (!ok) out.push(`${path}: type ${t} → ${nt.join('|') || 'any'}`);
+  }
+  if (Array.isArray(was.enum) && Array.isArray(now.enum))
+    for (const v of was.enum as unknown[]) if (!(now.enum as unknown[]).includes(v)) out.push(`${path}: enum value ${JSON.stringify(v)} removed`);
+  if (!was.enum && Array.isArray(now.enum)) out.push(`${path}: now limited to ${JSON.stringify(now.enum)}`);
+  for (const k of ['minimum', 'exclusiveMinimum', 'minItems', 'minLength'] as const)
+    if (typeof now[k] === 'number' && (typeof was[k] !== 'number' || (now[k] as number) > (was[k] as number))) out.push(`${path}: ${k} ${was[k] ?? '—'} → ${now[k]}`);
+  for (const k of ['maximum', 'exclusiveMaximum', 'maxItems', 'maxLength'] as const)
+    if (typeof now[k] === 'number' && (typeof was[k] !== 'number' || (now[k] as number) < (was[k] as number))) out.push(`${path}: ${k} ${was[k] ?? '—'} → ${now[k]}`);
+  if (now.pattern !== undefined && now.pattern !== was.pattern) out.push(`${path}: pattern changed`);
+  if (was.items && now.items) schemaBreaks(`${path}[]`, was.items as Json, now.items as Json, out);
+  if (was.properties && now.properties) {
+    const wp = was.properties as Record<string, Json>;
+    const np = now.properties as Record<string, Json>;
+    for (const [k, v] of Object.entries(wp)) if (np[k]) schemaBreaks(`${path}.${k}`, v, np[k]!, out);
+    const wr = new Set((was.required as string[]) ?? []);
+    for (const r of (now.required as string[]) ?? []) if (!wr.has(r)) out.push(`${path}.${r}: now required`);
+  }
 }
 
 /** Changes from `frozen` to `now` that break callers. Additions are fine. */
 export function breakingChanges(frozen: Surface, now: Surface): string[] {
   const out: string[] = [];
-  const kindBreaks = (path: string, a: SurfaceKind, b: SurfaceKind) => {
-    if (a.type !== b.type) return out.push(`${path}: type ${a.type} → ${b.type}`);
-    if (a.values) for (const v of a.values) if (!b.values?.includes(v)) out.push(`${path}: enum value "${v}" removed`);
-    if (a.of && b.of) kindBreaks(`${path}[]`, a.of, b.of);
-    return 0;
-  };
   for (const [id, t] of Object.entries(frozen.tools)) {
     const n = now.tools[id];
     if (!n) {
@@ -123,15 +172,19 @@ export function breakingChanges(frozen: Surface, now: Surface): string[] {
       continue;
     }
     if (n.cli !== t.cli) out.push(`${id}: CLI name ${t.cli} → ${n.cli}`);
+    t.positional.forEach((p, i) => {
+      if (n.positional[i] !== p) out.push(`${id}: CLI positional argument ${i + 1} ${p} → ${n.positional[i] ?? '(none)'}`);
+    });
     for (const [arg, a] of Object.entries(t.args)) {
       const b = n.args[arg];
       if (!b) out.push(`${id}.${arg}: argument removed or renamed`);
       else {
         if (!a.required && b.required) out.push(`${id}.${arg}: optional → required`);
-        kindBreaks(`${id}.${arg}`, a.kind, b.kind);
+        schemaBreaks(`${id}.${arg}`, a.schema, b.schema, out);
       }
     }
     for (const [arg, b] of Object.entries(n.args)) if (!t.args[arg] && b.required) out.push(`${id}.${arg}: new required argument`);
+    for (const k of t.output_keys) if (!n.output_keys.includes(k)) out.push(`${id}: output key "${k}" removed`);
   }
   return out;
 }

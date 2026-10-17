@@ -69,8 +69,14 @@ export function resolvePath(doc: IconDocument, path: string): NodeRef {
   if (p === '' || p === 'document' || p === '/') return { kind: 'document' };
   // a group whose name itself contains "/" (written by another tool)
   const whole = doc.groups.filter((g) => nameOf(g).toLowerCase() === p.toLowerCase());
-  if (whole.length === 1) return { kind: 'group', id: whole[0]!.id };
   const [gp, lp, ...rest] = p.split('/');
+  if (whole.length === 1) {
+    // "A/B" could also be layer B in group A
+    const g = lp !== undefined && !rest.length ? doc.groups.find((x) => nameOf(x).toLowerCase() === gp!.trim().toLowerCase()) : undefined;
+    if (g?.layers.some((l) => nameOf(l).toLowerCase() === lp!.trim().toLowerCase()))
+      throw new OpError(`"${path}" matches both a group and a layer; use #index (e.g. "#${doc.groups.indexOf(whole[0]!)}")`);
+    return { kind: 'group', id: whole[0]!.id };
+  }
   if (rest.length) throw new OpError(`Invalid target "${path}". Use "Group" or "Group/Layer".`);
   const pick = <T extends GroupNode | LayerNode>(list: T[], key: string, what: string): T => {
     const k = key.trim();
@@ -119,11 +125,13 @@ export function cleanName(name: string): string {
   return name.replace(/[\/\u0000-\u001f]/g, '-').trim();
 }
 
+/** Names are compared case-insensitively, like resolvePath matches them. */
 export function uniqueName(existing: string[], wanted0: string): string {
   const wanted = cleanName(wanted0) || 'Untitled';
-  if (!existing.includes(wanted)) return wanted;
+  const taken = new Set(existing.map((n) => n.toLowerCase()));
+  if (!taken.has(wanted.toLowerCase())) return wanted;
   let i = 2;
-  while (existing.includes(`${wanted} ${i}`)) i++;
+  while (taken.has(`${wanted} ${i}`.toLowerCase())) i++;
   return `${wanted} ${i}`;
 }
 
@@ -156,10 +164,17 @@ export function addAsset(doc: IconDocument, asset: Asset): string {
   // no path separators, control characters or leading dots (hidden files are skipped when a bundle is read)
   let name = asset.name.replace(/[\\/\u0000-\u001f:]/g, '_').replace(/^[.\s]+/, '').trim() || 'image';
   const dot = name.lastIndexOf('.');
-  const stem = dot > 0 ? name.slice(0, dot) : name;
-  const ext = dot > 0 ? name.slice(dot) : '';
+  // file systems allow 255 bytes per name; keep room for " 99" and the extension
+  const ext = dot > 0 ? name.slice(dot, dot + 16) : '';
+  let stem = dot > 0 ? name.slice(0, dot) : name;
+  while (new TextEncoder().encode(stem).length > 200) stem = stem.slice(0, -1);
+  name = stem + ext;
+  // case-insensitive file systems (APFS, NTFS) would merge "Logo.svg" and "logo.svg"
+  const clash = (n: string) => Object.values(doc.assets).find((a) => a.name.toLowerCase() === n.toLowerCase());
   let i = 2;
-  while (doc.assets[name] && !sameBytes(doc.assets[name]!.bytes, asset.bytes)) name = `${stem} ${i++}${ext}`;
+  for (let c = clash(name); c && !sameBytes(c.bytes, asset.bytes); c = clash(name)) name = `${stem} ${i++}${ext}`;
+  const same = clash(name);
+  if (same) return same.name;
   doc.assets[name] = { ...asset, name };
   return name;
 }
@@ -237,7 +252,10 @@ function normalizeFillColors(f: Record<string, unknown>): Record<string, unknown
   const o = { ...f };
   if (typeof o.solid === 'string') o.solid = normalizeColorInput(o.solid);
   if (typeof o['automatic-gradient'] === 'string') o['automatic-gradient'] = normalizeColorInput(o['automatic-gradient'] as string);
-  if (Array.isArray(o['linear-gradient'])) o['linear-gradient'] = (o['linear-gradient'] as string[]).map(normalizeColorInput);
+  if (Array.isArray(o['linear-gradient'])) {
+    if (!(o['linear-gradient'] as unknown[]).every((c) => typeof c === 'string')) throw new OpError('linear-gradient takes a list of color strings');
+    o['linear-gradient'] = (o['linear-gradient'] as string[]).map(normalizeColorInput);
+  }
   return o;
 }
 
@@ -247,28 +265,36 @@ export function resetOverride(doc: IconDocument, ref: NodeRef, key: string, appe
 
 export function removeNode(doc: IconDocument, ref: NodeRef): void {
   if (ref.kind === 'document') throw new OpError("The document can't be removed");
+  let removedImages: Set<string>;
   if (ref.kind === 'group') {
     const i = doc.groups.findIndex((g) => g.id === ref.id);
     if (i < 0) throw new OpError('Group not found');
+    removedImages = imagesOf(doc.groups[i]!.layers);
     doc.groups.splice(i, 1);
   } else {
     const f = findLayer(doc, ref.id);
     if (!f) throw new OpError('Layer not found');
+    removedImages = imagesOf([f.layer]);
     f.group.layers.splice(f.index, 1);
   }
-  pruneAssets(doc);
+  // only the removed items' images go; other bundled files nothing points at are kept
+  pruneAssets(doc, removedImages);
 }
 
-/** Drops assets no longer referenced by any layer (including specializations). */
-export function pruneAssets(doc: IconDocument): void {
+function imagesOf(layers: LayerNode[]): Set<string> {
   const used = new Set<string>();
-  for (const g of doc.groups)
-    for (const l of g.layers) {
-      const p = l.props['image-name'];
-      if (p?.plain && typeof p.plain.value === 'string') used.add(p.plain.value);
-      for (const s of p?.specs ?? []) if (typeof s.value === 'string') used.add(s.value);
-    }
-  for (const k of Object.keys(doc.assets)) if (!used.has(k)) delete doc.assets[k];
+  for (const l of layers) {
+    const p = l.props['image-name'];
+    if (p?.plain && typeof p.plain.value === 'string') used.add(p.plain.value);
+    for (const s of p?.specs ?? []) if (typeof s.value === 'string') used.add(s.value);
+  }
+  return used;
+}
+
+/** Drops assets no longer referenced by any layer (including specializations); with `only`, just those names. */
+export function pruneAssets(doc: IconDocument, only?: Set<string>): void {
+  const used = imagesOf(doc.groups.flatMap((g) => g.layers));
+  for (const k of Object.keys(doc.assets)) if (!used.has(k) && (!only || only.has(k))) delete doc.assets[k];
 }
 
 export function moveNode(doc: IconDocument, ref: NodeRef, index: number, toGroupId?: string): void {
@@ -318,6 +344,8 @@ export function groupLayer(doc: IconDocument, layerId: string, name?: string): G
   if (!f) throw new OpError('Layer not found');
   const gi = doc.groups.indexOf(f.group);
   const g = addGroup(doc, { name: name ?? nameOf(f.layer), index: gi });
+  // the layer keeps its place on the canvas: the new group takes over the old group's position
+  if (f.group.props.position) g.props.position = structuredClone(f.group.props.position);
   f.group.layers.splice(f.index, 1);
   g.layers.push(f.layer);
   return g;

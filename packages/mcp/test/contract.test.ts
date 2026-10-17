@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { argsOf, cliCommand, parseToolArgv } from '../src/cliargs';
-import { breakingChanges, buildContract, buildSurface, PROMPTS, RESOURCES } from '../src/contract';
+import { breakingChanges, buildContract, buildSurface, PROMPTS, RESOURCES, type Surface } from '../src/contract';
 import { CONTRACT_VERSION, TOOLS, toolById } from '../src/spec';
 
 const run = promisify(execFile);
@@ -44,23 +44,25 @@ describe('SPEC contract', () => {
 
   it('detects breaking changes against the frozen surface', () => {
     const frozen = buildSurface();
-    const now = structuredClone(frozen);
-    expect(breakingChanges(frozen, now)).toEqual([]);
-    delete now.tools.icon_set!.args.appearance;
-    now.tools.icon_move!.args.to_group!.required = true;
-    now.tools.icon_render!.args.mask!.kind.values = ['squircle'];
-    now.tools.icon_create!.args.extra = { kind: { type: 'string' }, required: true };
-    delete now.tools.icon_remove;
-    const breaks = breakingChanges(frozen, now).join('\n');
-    expect(breaks).toContain('icon_set.appearance: argument removed');
-    expect(breaks).toContain('icon_move.to_group: optional → required');
-    expect(breaks).toContain('icon_render.mask: enum value "circle" removed');
-    expect(breaks).toContain('icon_create.extra: new required argument');
-    expect(breaks).toContain('icon_remove: tool removed');
-    // additions are compatible
-    const added = structuredClone(frozen);
-    added.tools.icon_set!.args.note = { kind: { type: 'string' }, required: false };
-    expect(breakingChanges(frozen, added)).toEqual([]);
+    const mod = (f: (s: Surface) => void) => {
+      const now = structuredClone(frozen);
+      f(now);
+      return breakingChanges(frozen, now).join('\n');
+    };
+    expect(breakingChanges(frozen, structuredClone(frozen))).toEqual([]);
+    expect(mod((s) => delete s.tools.icon_set!.args.appearance)).toContain('icon_set.appearance: argument removed');
+    expect(mod((s) => (s.tools.icon_move!.args.to_group!.required = true))).toContain('icon_move.to_group: optional → required');
+    expect(mod((s) => ((s.tools.icon_render!.args.mask!.schema as { enum: string[] }).enum = ['squircle']))).toContain('enum value "circle" removed');
+    expect(mod((s) => (s.tools.icon_create!.args.extra = { required: true, schema: { type: 'string' } }))).toContain('icon_create.extra: new required argument');
+    expect(mod((s) => delete s.tools.icon_remove)).toContain('icon_remove: tool removed');
+    expect(mod((s) => (s.tools.icon_render!.args.light_angle!.schema.type = 'integer'))).toContain('icon_render.light_angle: type number → integer');
+    expect(mod((s) => (s.tools.icon_render!.args.size!.schema.maximum = 512))).toContain('icon_render.size: maximum 2048 → 512');
+    expect(mod((s) => (s.tools.icon_export!.output_keys = ['files']))).toContain('icon_export: output key "written" removed');
+    expect(mod((s) => (s.tools.icon_set!.positional = []))).toContain('icon_set: CLI positional argument 1 path');
+    // additions and widening are compatible
+    expect(mod((s) => (s.tools.icon_set!.args.note = { required: false, schema: { type: 'string' } }))).toBe('');
+    expect(mod((s) => delete (s.tools.icon_render!.args.mask!.schema as { enum?: string[] }).enum)).toBe('');
+    expect(mod((s) => (s.tools.icon_render!.args.size!.schema.maximum = 4096))).toBe('');
   });
 
   it('has a consistent registry', () => {
@@ -73,7 +75,8 @@ describe('SPEC contract', () => {
       expect(t.summary.length, t.id).toBeLessThan(110);
       expect(t.examples.length, `${t.id} needs an example`).toBeGreaterThan(0);
       expect(t.supports_dry_run, `${t.id}: dry_run argument`).toBe('dry_run' in t.input);
-      if (!t.mutates_input) expect(t.destructive, t.id).toBeFalsy();
+      if (!t.mutates_input && !t.writes_files) expect(t.destructive, t.id).toBeFalsy();
+      if (t.id === 'icon_export' || t.id === 'icon_create') expect(t.destructive, t.id).toBe(true);
       // positional args exist and every example parses
       for (const p of t.positional ?? []) expect(Object.keys(t.input)).toContain(p);
       for (const ex of t.examples) expect(z.object(t.input).strict().safeParse(ex.args).success, `${t.id}: ${ex.note}`).toBe(true);
@@ -91,7 +94,8 @@ describe('SPEC contract', () => {
       const want = spec.input_schema as { properties: Record<string, unknown>; required?: string[] };
       expect(Object.keys(t.inputSchema.properties ?? {}).sort(), t.name).toEqual(Object.keys(want.properties).sort());
       expect([...(t.inputSchema.required ?? [])].sort(), t.name).toEqual([...(want.required ?? [])].sort());
-      expect(t.annotations?.readOnlyHint, t.name).toBe(!spec.mutates_input);
+      expect(t.annotations?.readOnlyHint, t.name).toBe(!spec.mutates_input && !spec.writes_files);
+      expect((t.inputSchema as { additionalProperties?: unknown }).additionalProperties, t.name).toBe(false);
       expect(t.annotations?.destructiveHint, t.name).toBe(spec.destructive);
       expect(t.outputSchema, t.name).toBeTruthy();
     }
@@ -141,11 +145,23 @@ describe('SPEC contract', () => {
 
   it('parses CLI arguments by schema type', () => {
     const align = toolById('icon_align')!;
-    expect(parseToolArgv(align, ['A.icon', '--targets', 'G/a,G/b', '--how', 'left', '--dry-run'])).toEqual({ path: 'A.icon', targets: ['G/a', 'G/b'], how: 'left', dry_run: true });
-    const exp = toolById('icon_export')!;
-    expect(parseToolArgv(exp, ['A.icon', '--out-dir=d', '--formats', 'png', '--sizes', '32,16'])).toEqual({ path: 'A.icon', out_dir: 'd', formats: ['png'], sizes: [32, 16] });
-    expect(parseToolArgv(toolById('icon_create')!, ['A.icon', '--no-watch'])).toEqual({ path: 'A.icon', watch: false });
-    expect(() => parseToolArgv(exp, ['A.icon', '--sizes', 'big'])).toThrow(/expects a number/);
-    expect(() => parseToolArgv(exp, ['A.icon', 'B.icon'])).toThrow(/Unexpected argument/);
+    const args = (t: string, argv: string[]) => parseToolArgv(toolById(t)!, argv).args;
+    expect(args('icon_align', ['A.icon', '--targets', 'G/a,G/b', '--how', 'left', '--dry-run'])).toEqual({ path: 'A.icon', targets: ['G/a', 'G/b'], how: 'left', dry_run: true });
+    expect(args('icon_export', ['A.icon', '--out-dir=d', '--formats', 'png', '--sizes', '32,16'])).toEqual({ path: 'A.icon', out_dir: 'd', formats: ['png'], sizes: [32, 16] });
+    expect(args('icon_create', ['A.icon', '--no-watch'])).toEqual({ path: 'A.icon', watch: false });
+    expect(() => args('icon_export', ['A.icon', '--sizes', 'big'])).toThrow(/expects a number/);
+    expect(() => args('icon_export', ['A.icon', '--sizes', '0x20'])).toThrow(/expects a number/);
+    expect(() => args('icon_export', ['A.icon', 'B.icon'])).toThrow(/Unexpected argument/);
+    // repeated array flags append, --args objects merge, -- ends the options
+    expect(args('icon_align', ['A.icon', '--targets', 'G/a', '--targets', 'G/b', '--how', 'left'])).toMatchObject({ targets: ['G/a', 'G/b'] });
+    expect(args('icon_set', ['A.icon', '--args', '{"target":"G"}', '--args', '{"props":{}}'])).toEqual({ path: 'A.icon', target: 'G', props: {} });
+    expect(args('icon_inspect', ['--', '--odd.icon'])).toEqual({ path: '--odd.icon' });
+    // booleans are strict; a positional and its flag together are an error
+    expect(args('icon_create', ['A.icon', '--dry-run=off'])).toMatchObject({ dry_run: false });
+    expect(() => args('icon_create', ['A.icon', '--dry-run=maybe'])).toThrow(/true or false/);
+    expect(() => args('icon_inspect', ['A.icon', '--path', 'B.icon'])).toThrow(/given twice/);
+    // --help / --root are only options where an option can be, never a flag's value
+    expect(args('icon_add_group', ['A.icon', '--name', '--help'])).toMatchObject({ name: '--help' });
+    expect(parseToolArgv(toolById('icon_inspect')!, ['A.icon', '--root', 'r', '-h'])).toMatchObject({ roots: ['r'], help: true });
   });
 });

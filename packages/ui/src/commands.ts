@@ -181,7 +181,8 @@ export function selectAllLayers() {
 
 // ---------------------------------------------------------------- copy / paste style
 
-const STYLE_EXCLUDE = new Set(['name', 'image-name']);
+/** Not part of an item's style: identity, artwork, where it is and whether it's shown. */
+const STYLE_EXCLUDE = new Set(['name', 'image-name', 'position', 'hidden']);
 let styleClipboard: { kind: 'group' | 'layer'; props: PropMap } | null = null;
 
 export function copyStyle() {

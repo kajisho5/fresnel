@@ -37,10 +37,11 @@ export function createServer(ws: Workspace): McpServer {
       {
         title: t.title,
         description: t.description,
-        inputSchema: t.input,
+        // strict: a misspelt argument (dryRun for dry_run) is an error, not silently dropped
+        inputSchema: z.object(t.input).strict(),
         outputSchema: t.output as z.ZodObject,
         annotations: {
-          readOnlyHint: !t.mutates_input,
+          readOnlyHint: !t.mutates_input && !t.writes_files,
           destructiveHint: !!t.destructive,
           idempotentHint: t.idempotency_hint === 'idempotent',
           openWorldHint: false,

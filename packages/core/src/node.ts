@@ -1,7 +1,7 @@
 /** Node-only helpers: read and write `.icon` bundle directories (and .icon.zip). */
 import { lstat, mkdir, readdir, readFile, rm, stat, writeFile, rename } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { readBundle, unzipBundle, writeBundle, type FileMap } from './bundle';
+import { isSafeBundlePath, readBundle, unzipBundle, writeBundle, type FileMap } from './bundle';
 import type { IconDocument } from './model';
 
 export type LoadedIcon = IconDocument & { extra: FileMap };
@@ -48,13 +48,15 @@ async function assertNoSymlink(root: string, p: string): Promise<void> {
  * Symbolic links inside the bundle are never followed (so a crafted bundle
  * can't make fresnel write or delete files elsewhere).
  */
-export async function saveIcon(path: string, doc: LoadedIcon | IconDocument): Promise<void> {
+/** Returns the paths written. */
+export async function saveIcon(path: string, doc: LoadedIcon | IconDocument): Promise<string[]> {
   const root = resolve(path);
   if ((await lstat(root).catch(() => null))?.isSymbolicLink()) throw new Error(`Refusing to save through a symbolic link: ${path}`);
   const files = writeBundle(doc, 'extra' in doc ? doc.extra : {});
   const assetsDir = join(root, 'Assets');
   await assertNoSymlink(root, assetsDir);
   await mkdir(assetsDir, { recursive: true });
+  const written: string[] = [];
   for (const [rel, bytes] of Object.entries(files)) {
     const target = resolve(root, ...rel.split('/'));
     await assertNoSymlink(root, target);
@@ -64,18 +66,23 @@ export async function saveIcon(path: string, doc: LoadedIcon | IconDocument): Pr
     await rm(tmp, { force: true });
     await writeFile(tmp, bytes, { flag: 'wx' });
     await rename(tmp, target);
+    written.push(target);
   }
   const keep = new Set(Object.keys(doc.assets));
   await assertNoSymlink(root, assetsDir);
   for (const e of await readdir(assetsDir, { withFileTypes: true })) {
-    // Dirent.isFile() is false for symlinks, so links are never removed through; hidden files are left alone
-    if (e.isFile() && !keep.has(e.name) && !e.name.startsWith('.')) await rm(join(assetsDir, e.name));
+    // Dirent.isFile() is false for symlinks, so links are never removed through. Only files fresnel could
+    // have read are removed: hidden files and names it skips when reading (e.g. "a:b.svg") are left alone.
+    if (!e.isFile() || keep.has(e.name)) continue;
+    if (e.name.endsWith('.fresnel-tmp') || (isSafeBundlePath(`Assets/${e.name}`) && !e.name.startsWith('.'))) await rm(join(assetsDir, e.name));
   }
+  return written;
 }
 
 export async function writeFiles(dir: string, files: Record<string, Uint8Array>): Promise<string[]> {
   const written: string[] = [];
   const root = resolve(dir);
+  if ((await lstat(root).catch(() => null))?.isSymbolicLink()) throw new Error(`Refusing to write through a symbolic link: ${dir}`);
   for (const [rel, bytes] of Object.entries(files)) {
     const target = resolve(root, ...rel.split('/'));
     const r = relative(root, target);

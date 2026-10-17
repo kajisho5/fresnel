@@ -171,7 +171,12 @@ export const useUI = create<UIState>()((set, get) => ({
 // ---------------------------------------------------------------- derived values
 
 /** The rendered appearance for the current canvas selection. */
-export function currentAppearance(s: Pick<UIState, 'appearanceMode' | 'monoDark' | 'monoTinted'>): Appearance {
+/**
+ * Appearance being previewed. watchOS icons have no appearances, so with the watchOS platform it is
+ * always "default" — geometry, hit testing and the inspector must use the same value as the renderer.
+ */
+export function currentAppearance(s: Pick<UIState, 'appearanceMode' | 'monoDark' | 'monoTinted'> & { platform?: UIState['platform'] }): Appearance {
+  if (s.platform === 'watchOS') return 'default';
   if (s.appearanceMode === 'default') return 'default';
   if (s.appearanceMode === 'dark') return 'dark';
   return `${s.monoTinted ? 'tinted' : 'clear'}-${s.monoDark ? 'dark' : 'light'}` as Appearance;

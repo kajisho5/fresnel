@@ -46,6 +46,8 @@ export function svgSize(svg: string): { width: number; height: number } {
 }
 
 export function pngSize(b: Uint8Array): { width: number; height: number } {
+  // a truncated file has no IHDR: report 0×0 instead of throwing (the layer shows as unrenderable)
+  if (b.length < 24) return { width: 0, height: 0 };
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
   return { width: dv.getUint32(16), height: dv.getUint32(20) };
 }
@@ -58,6 +60,11 @@ export function jpgSize(b: Uint8Array): { width: number; height: number } {
       continue;
     }
     const marker = b[i + 1]!;
+    if (marker === 0xff) {
+      // fill bytes before a marker
+      i++;
+      continue;
+    }
     const len = (b[i + 2]! << 8) | b[i + 3]!;
     if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
       return { height: (b[i + 5]! << 8) | b[i + 6]!, width: (b[i + 7]! << 8) | b[i + 8]! };
@@ -100,13 +107,34 @@ function expandInternalEntities(svg: string): string {
     if (v.length <= 2048 && !/[&<]/.test(v)) ents.set(m[1]!, v);
   }
   const body = svg.slice(0, doctype.index) + svg.slice(doctype.index + doctype[0].length);
-  return body.replace(/&([\w.-]+);/g, (m, name: string) => ents.get(name) ?? m);
+  // cap the total growth so many references to a long value can't blow up memory
+  let budget = Math.max(1 << 20, body.length * 4);
+  return body.replace(/&([\w.-]+);/g, (m, name: string) => {
+    const v = ents.get(name);
+    if (v === undefined || v.length > budget) return m;
+    budget -= v.length;
+    return v;
+  });
 }
+
+/** Inline images allowed in href / url(): raster or SVG data, base64, optional parameters such as ;charset=utf-8. */
+const DATA_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml)(?:;[\w.+-]+=[\w.+-]+)*;base64,[a-z0-9+/=\s]*$/i;
 
 function safeUrlRef(v: string): boolean {
   const t = v.trim().replace(/^['"]|['"]$/g, '').trim();
-  return t.startsWith('#') || /^data:image\/(png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]*$/i.test(t);
+  return t.startsWith('#') || DATA_IMAGE.test(t);
 }
+
+/** Decodes the XML entities that can appear in attribute values and text. */
+function decodeXmlEntities(v: string): string {
+  return v
+    .replace(/&#x([0-9a-f]+);/gi, (_m, h: string) => String.fromCodePoint(parseInt(h, 16) % 0x110000))
+    .replace(/&#(\d+);/g, (_m, d: string) => String.fromCodePoint(Number(d) % 0x110000))
+    .replace(/&(lt|gt|quot|apos|amp);/g, (_m, n: string) => ({ lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' })[n]!);
+}
+
+/** Escapes text so it can't open markup (used for CSS that was decoded). */
+const escapeXmlText = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** Removes url(...) references to anything but local fragments / inline images, and @import. */
 function cleanCss(css0: string): string {
@@ -115,6 +143,8 @@ function cleanCss(css0: string): string {
   return css
     .replace(/@import\b[^;]*;?/gi, '')
     .replace(/url\s*\(([^)]*)\)/gi, (m, inner: string) => (safeUrlRef(inner) ? m : 'none'))
+    // other functions that take a bare URL string
+    .replace(/(?:-webkit-)?image-set\s*\(|\bsrc\s*\(/gi, '(')
     .replace(/expression\s*\(/gi, '(')
     .replace(/javascript\s*:/gi, '');
 }
@@ -138,9 +168,12 @@ function cleanAttrs(raw: string): string {
     if (/javascript:|vbscript:/.test(plain) || lname === 'xml:base') continue;
     let v = value;
     if (lname === 'style' || /url\(/.test(plain)) {
-      v = cleanCss(v);
+      // work on the real CSS text, then write it back escaped (decoded escapes can't open markup)
+      const css = cleanCss(decodeXmlEntities(v));
       // anything still pointing at a non-local url after decoding escapes is dropped
-      if (/url\((?!['"]?#)/.test(decodeForCheck(v).replace(/url\(['"]?data:image\/(png|jpe?g|gif|webp);base64,/g, 'url(#'))) continue;
+      const refs = [...decodeForCheck(css).matchAll(/url\(([^)]*)\)/g)].map((m) => m[1]!);
+      if (refs.some((r) => !safeUrlRef(r))) continue;
+      v = escapeXmlText(css);
     }
     out.push(`${name}="${v.replace(/"/g, '&quot;')}"`);
   }
@@ -155,7 +188,7 @@ function sanitizeOnce(svg: string): string {
   while (i < svg.length) {
     const lt = svg.indexOf('<', i);
     const text = lt < 0 ? svg.slice(i) : svg.slice(i, lt);
-    if (!skip.length) out += inStyle ? cleanCss(text) : text;
+    if (!skip.length) out += inStyle ? escapeXmlText(cleanCss(decodeXmlEntities(text))) : text;
     if (lt < 0) break;
     if (svg.startsWith('<!--', lt)) {
       const e = svg.indexOf('-->', lt + 4);
@@ -165,7 +198,8 @@ function sanitizeOnce(svg: string): string {
     if (svg.startsWith('<![CDATA[', lt)) {
       const e = svg.indexOf(']]>', lt);
       const body = svg.slice(lt + 9, e < 0 ? svg.length : e);
-      if (!skip.length) out += inStyle ? `<![CDATA[${cleanCss(body)}]]>` : `<![CDATA[${body}]]>`;
+      // style CDATA is written back as escaped text: decoded CSS could contain "]]>" or markup
+      if (!skip.length) out += inStyle ? escapeXmlText(cleanCss(body)) : `<![CDATA[${body}]]>`;
       i = e < 0 ? svg.length : e + 3;
       continue;
     }
@@ -249,12 +283,13 @@ function sanitizeOnce(svg: string): string {
  */
 export function sanitizeSvg(svg: string): string {
   let s = expandInternalEntities(svg);
-  for (let n = 0; n < 5; n++) {
+  for (let n = 0; n < 8; n++) {
     const next = sanitizeOnce(s);
-    if (next === s) break;
+    if (next === s) return s;
     s = next;
   }
-  return s;
+  // never stabilised: hand back an empty image rather than something only partly cleaned
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"/>';
 }
 
 export interface SvgFacts {
@@ -303,7 +338,19 @@ export interface Bitmap {
   data: Uint8Array;
 }
 
+/** Largest bitmap decoded (pixels). Bigger files are treated as undecodable instead of exhausting memory. */
+export const MAX_DECODE_PIXELS = 64_000_000;
+
+/** Decodes an 8-bit PNG to RGBA. Returns null for unsupported, truncated, corrupt or oversized files (never throws). */
 export function decodePng(b: Uint8Array): Bitmap | null {
+  try {
+    return decodePngUnchecked(b);
+  } catch {
+    return null;
+  }
+}
+
+function decodePngUnchecked(b: Uint8Array): Bitmap | null {
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
   let off = 8;
   let width = 0;
@@ -331,6 +378,7 @@ export function decodePng(b: Uint8Array): Bitmap | null {
     off += 12 + len;
   }
   if (depth !== 8 || interlace !== 0) return null;
+  if (!width || !height || width * height > MAX_DECODE_PIXELS) return null;
   const ch = ({ 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 } as Record<number, number>)[ctype];
   if (!ch) return null;
   const total = idat.reduce((a, x) => a + x.length, 0);

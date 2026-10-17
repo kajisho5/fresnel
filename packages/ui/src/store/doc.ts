@@ -30,7 +30,11 @@ function sameTree(a: IconDocument, b: IconDocument): boolean {
 
 /** The document as last loaded or saved; `dirty` means the current doc differs from it. */
 let savedDoc: IconDocument | null = null;
-const isDirty = (doc: IconDocument) => !savedDoc || !sameTree(doc, savedDoc);
+/** The document name as last loaded or saved (renaming is unsaved work too). */
+let savedName: string | null = null;
+const isDirty = (doc: IconDocument, name = useDoc.getState().name) => !savedDoc || name !== savedName || !sameTree(doc, savedDoc);
+/** Recomputes `dirty` (after a rename, undo or redo). */
+export const refreshDirty = () => useDoc.setState({ dirty: isDirty(useDoc.getState().doc) });
 
 /** Copies the editable tree; asset bytes are immutable and shared between history snapshots. */
 export function cloneDoc(d: IconDocument): IconDocument {
@@ -85,6 +89,7 @@ export const useDoc = create<DocState>()(
 
       load(doc, { name, location = null, extra = {} }) {
         savedDoc = doc;
+        savedName = name;
         set({ doc, name, location, extra, dirty: false, generation: get().generation + 1 });
         useDoc.temporal.getState().clear();
       },
@@ -93,6 +98,7 @@ export const useDoc = create<DocState>()(
       },
       markSaved(location, name) {
         savedDoc = get().doc;
+        savedName = name || get().name;
         set({ dirty: false, ...(location !== undefined ? { location } : {}), ...(name ? { name } : {}) });
       },
       mutate(fn) {
@@ -162,12 +168,15 @@ export const markUnsaved = () => {
 };
 
 export const undo = () => {
+  // a slider / color picker still in a gesture is committed first, so undo removes exactly that edit
+  endGesture();
   const t = useDoc.temporal.getState();
   if (!t.pastStates.length) return;
   t.undo();
   useDoc.setState({ dirty: isDirty(useDoc.getState().doc) });
 };
 export const redo = () => {
+  endGesture();
   const t = useDoc.temporal.getState();
   if (!t.futureStates.length) return;
   t.redo();
@@ -175,6 +184,9 @@ export const redo = () => {
 };
 /** Groups continuous edits (slider drags) into one undo step. */
 let gestureStart: IconDocument | null = null;
+/** Keys that change a range input's value (modifier combos like ⌘Z are not gestures). */
+export const isGestureKey = (e: { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean }) =>
+  !e.metaKey && !e.ctrlKey && !e.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key);
 export const beginGesture = () => {
   if (gestureStart) return;
   gestureStart = useDoc.getState().doc;

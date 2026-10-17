@@ -52,6 +52,11 @@ function useShortcuts() {
         return;
       }
       const k = e.key.toLowerCase();
+      // while the export sheet or a menu is open, shortcuts must not edit the document behind it
+      if (ui.exportOpen || useMenu.getState().open) {
+        if (!typing || ['s', 'o', 'n'].includes(k)) e.preventDefault();
+        return;
+      }
       if (k === 'a' && !typing && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         selectAllLayers();

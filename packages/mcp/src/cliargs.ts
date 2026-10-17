@@ -135,7 +135,7 @@ function convert(k: ArgKind, raw: string, flag: string): unknown {
   switch (k.type) {
     case 'number': {
       const n = Number(raw);
-      if (raw.trim() === '' || Number.isNaN(n)) throw new Error(`${flag} expects a number, got "${raw}"`);
+      if (!/^\s*[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?\s*$/i.test(raw) || Number.isNaN(n)) throw new Error(`${flag} expects a number, got "${raw}"`);
       return n;
     }
     case 'array':
@@ -151,53 +151,92 @@ function convert(k: ArgKind, raw: string, flag: string): unknown {
   }
 }
 
+export interface ParsedArgv {
+  args: Record<string, unknown>;
+  /** --root / -r: limit file access like the MCP server */
+  roots: string[];
+  help: boolean;
+}
+
+const BOOL_TRUE = /^(true|1|yes|on)$/i;
+const BOOL_FALSE = /^(false|0|no|off)$/i;
+
 /**
  * Turns argv into the tool's argument object. Validation itself is left to zod (runTool),
- * so the CLI and MCP report the same errors.
+ * so the CLI and MCP report the same errors. `--` ends the options; array flags may be
+ * repeated (values are appended); `--args` objects are merged, flags win.
  */
-export function parseToolArgv(t: ToolDef, argv: string[]): Record<string, unknown> {
+export function parseToolArgv(t: ToolDef, argv: string[]): ParsedArgv {
   const infos = argsOf(t);
   const byFlag = new Map(infos.map((a) => [a.flag, a]));
   const out: Record<string, unknown> = {};
   let base: Record<string, unknown> = {};
+  const roots: string[] = [];
+  let help = false;
   const positionals: string[] = [];
+  let optionsDone = false;
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i]!;
-    if (!tok.startsWith('--') || tok === '--') {
+    if (optionsDone || tok === '-' || !tok.startsWith('-')) {
       positionals.push(tok);
       continue;
     }
+    if (tok === '--') {
+      optionsDone = true;
+      continue;
+    }
+    if (tok === '--help' || tok === '-h') {
+      help = true;
+      continue;
+    }
+    if (tok === '-r') {
+      const v = argv[++i];
+      if (v === undefined) throw new Error('-r needs a directory');
+      roots.push(v);
+      continue;
+    }
+    if (!tok.startsWith('--')) throw new Error(`Unknown option ${tok}. Run "fresnel ${cliCommand(t)} --help".`);
     const eq = tok.indexOf('=');
     const flag = eq > 0 ? tok.slice(0, eq) : tok;
     const inline = eq > 0 ? tok.slice(eq + 1) : undefined;
-    if (flag === '--args') {
+    const value = () => {
       const raw = inline ?? argv[++i];
-      if (raw === undefined) throw new Error('--args needs a JSON object');
-      const v = convert({ type: 'json' }, raw, '--args');
+      if (raw === undefined) throw new Error(`${flag} needs a value`);
+      return raw;
+    };
+    if (flag === '--root') {
+      roots.push(value());
+      continue;
+    }
+    if (flag === '--args') {
+      const v = convert({ type: 'json' }, value(), '--args');
       if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('--args must be a JSON object');
-      base = v as Record<string, unknown>;
+      base = { ...base, ...(v as Record<string, unknown>) };
       continue;
     }
     const neg = flag.startsWith('--no-') ? byFlag.get(`--${flag.slice(5)}`) : undefined;
-    if (neg && neg.kind.type === 'boolean') {
+    if (neg && neg.kind.type === 'boolean' && inline === undefined) {
       out[neg.name] = false;
       continue;
     }
     const info = byFlag.get(flag);
     if (!info) throw new Error(`Unknown option ${flag} for ${t.id}. Run "fresnel ${cliCommand(t)} --help".`);
     if (info.kind.type === 'boolean') {
-      out[info.name] = inline === undefined ? true : !/^(false|0|no)$/i.test(inline);
+      if (inline === undefined) out[info.name] = true;
+      else if (BOOL_TRUE.test(inline)) out[info.name] = true;
+      else if (BOOL_FALSE.test(inline)) out[info.name] = false;
+      else throw new Error(`${flag} expects true or false, got "${inline}"`);
       continue;
     }
-    const raw = inline ?? argv[++i];
-    if (raw === undefined) throw new Error(`${flag} needs a value`);
-    out[info.name] = convert(info.kind, raw, flag);
+    const v = convert(info.kind, value(), flag);
+    out[info.name] = info.kind.type === 'array' && Array.isArray(out[info.name]) ? [...(out[info.name] as unknown[]), ...(v as unknown[])] : v;
   }
   const pos = t.positional ?? [];
   if (positionals.length > pos.length) throw new Error(`Unexpected argument "${positionals[pos.length]}". Run "fresnel ${cliCommand(t)} --help".`);
   positionals.forEach((v, i) => {
     const info = infos.find((a) => a.name === pos[i])!;
-    if (out[info.name] === undefined) out[info.name] = convert(info.kind, v, `<${info.name}>`);
+    if (out[info.name] !== undefined) throw new Error(`<${info.name}> was given twice (as an argument and as ${info.flag})`);
+    out[info.name] = convert(info.kind, v, `<${info.name}>`);
   });
-  return { ...base, ...out };
+  return { args: { ...base, ...out }, roots, help };
 }

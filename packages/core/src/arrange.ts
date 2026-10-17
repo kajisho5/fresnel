@@ -5,7 +5,7 @@
  */
 import { CANVAS, type IconDocument, type NodeRef } from './model';
 import type { Position } from './schema';
-import { resolveProp, type ResolveCtx, type VariantArg } from './prop';
+import { baseValue, resolveProp, toVariant, variantValue, type ResolveCtx, type VariantArg } from './prop';
 import { addGroup, findGroup, findLayer, OpError, setProp } from './ops';
 
 export interface Box {
@@ -91,10 +91,27 @@ export function moveBy(doc: IconDocument, ref: NodeRef, dx: number, dy: number, 
     props = f.layer.props;
     scale = resolveProp<Position | null>(f.group.props.position, ctx, null)?.scale ?? 1;
   }
-  const p = resolveProp<Position>(props.position, ctx, { scale: 1, 'translation-in-points': [0, 0] }) ?? { scale: 1, 'translation-in-points': [0, 0] };
-  const [x, y] = p['translation-in-points'] ?? [0, 0];
   const round = (v: number) => Math.round(v * 100) / 100;
-  setProp(doc, ref, 'position', { ...p, 'translation-in-points': [round(x + dx / scale), round(y + dy / scale)] }, variant);
+  const shift = (p: Position | null | undefined): Position => {
+    const q = p ?? { scale: 1, 'translation-in-points': [0, 0] };
+    const [x, y] = q['translation-in-points'] ?? [0, 0];
+    return { ...q, 'translation-in-points': [round(x + dx / scale), round(y + dy / scale)] };
+  };
+  const vv = toVariant(variant);
+  if (vv.appearance !== undefined || vv.idiom !== undefined) {
+    // one variant: start from what that variant shows now
+    const cur = (variantValue(props.position, vv) as Position | undefined) ?? resolveProp<Position | null>(props.position, ctx, null);
+    setProp(doc, ref, 'position', shift(cur), variant);
+    return;
+  }
+  // all appearances and platforms: move the base value and every variant by the same amount,
+  // so the item moves wherever it is previewed (and the base never takes a variant's value)
+  const pos = props.position;
+  setProp(doc, ref, 'position', shift(baseValue(pos) as Position | undefined), undefined);
+  for (const e of pos?.specs ?? []) {
+    if (e.appearance === undefined && e.idiom === undefined) continue;
+    if (e.value && typeof e.value === 'object') e.value = shift(e.value as Position);
+  }
 }
 
 export type AlignHow = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom';
@@ -164,13 +181,30 @@ export function distributeNodes(
  * Layers keep their front-to-back order. Empty source groups are left in place.
  */
 export function groupLayers(doc: IconDocument, layerIds: string[], name?: string) {
-  const found = layerIds.map((id) => findLayer(doc, id)).filter((f): f is NonNullable<typeof f> => !!f);
+  const found = [...new Set(layerIds)].map((id) => findLayer(doc, id)).filter((f): f is NonNullable<typeof f> => !!f);
   if (!found.length) throw new OpError('Layer not found');
   const order = (f: (typeof found)[number]) => doc.groups.indexOf(f.group) * 1e6 + f.index;
   found.sort((a, b) => order(a) - order(b));
   const front = found[0]!;
   const gi = doc.groups.indexOf(front.group);
   const g = addGroup(doc, { name: name ?? 'Group', index: gi });
+  // keep everything where it was on the canvas: with one source group the new group takes its position;
+  // from several groups, each layer's position is combined with its old group's (base values)
+  const sources = [...new Set(found.map((f) => f.group))];
+  const posJson = (x: (typeof sources)[number]) => JSON.stringify(x.props.position ?? null);
+  if (sources.every((x) => posJson(x) === posJson(sources[0]!))) {
+    if (sources[0]!.props.position) g.props.position = structuredClone(sources[0]!.props.position);
+  } else {
+    for (const f of found) {
+      const gp = baseValue(f.group.props.position) as Position | undefined;
+      if (!gp) continue;
+      const lp = (baseValue(f.layer.props.position) as Position | undefined) ?? { scale: 1, 'translation-in-points': [0, 0] };
+      const [gx, gy] = gp['translation-in-points'] ?? [0, 0];
+      const [lx, ly] = lp['translation-in-points'] ?? [0, 0];
+      const gs = gp.scale ?? 1;
+      setProp(doc, { kind: 'layer', id: f.layer.id }, 'position', { scale: (lp.scale ?? 1) * gs, 'translation-in-points': [gx + lx * gs, gy + ly * gs] });
+    }
+  }
   for (const f of found) {
     const grp = f.group;
     grp.layers.splice(grp.layers.indexOf(f.layer), 1);

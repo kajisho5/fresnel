@@ -156,7 +156,8 @@ export function Sidebar() {
     // the upper half of a row inserts before it, the lower half after it (matching the indicator line);
     // moveNode removes the item first, so moving down a list needs one less
     if (d.kind === 'group') {
-      let gi = (target.kind === 'group' ? target.gi : doc.groups.indexOf(target.g)) + (after && target.kind === 'group' ? 1 : 0);
+      // on a layer row too: the lower half means after that layer's group (where the indicator line is)
+      let gi = (target.kind === 'group' ? target.gi : doc.groups.indexOf(target.g)) + (after ? 1 : 0);
       const from = doc.groups.findIndex((g) => g.id === d.id);
       if (from < 0) return;
       if (from < gi) gi -= 1;

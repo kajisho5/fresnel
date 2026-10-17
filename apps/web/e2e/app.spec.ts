@@ -291,3 +291,87 @@ test('context menu Align submenu aligns one layer to the canvas', async ({ page 
   await page.keyboard.press('Enter');
   await expect(field(page, 'X')).toHaveValue('-312');
 });
+
+// ---------------------------------------------------------------- regressions from the bug hunt (v0.2.1)
+
+test('⌘Z while a slider has focus undoes one step and keeps redo', async ({ page }) => {
+  await open(page);
+  await page.getByRole('treeitem', { name: /Waves/ }).click();
+  const op = field(page, 'Opacity');
+  await op.fill('50');
+  await op.press('Enter');
+  const slider = page.getByRole('slider', { name: 'Translucency' });
+  await slider.focus();
+  await slider.press('ArrowRight');
+  await expect(field(page, 'Translucency')).toHaveValue('46%');
+  await slider.press('Control+z');
+  await expect(field(page, 'Translucency')).toHaveValue('45%');
+  await expect(page.getByRole('button', { name: /^Redo/ })).toBeEnabled();
+  await slider.press('Control+z');
+  await expect(field(page, 'Translucency')).toHaveValue('45%');
+  await expect(field(page, 'Opacity')).not.toHaveValue('50%');
+  await slider.press('Control+Shift+z');
+  await expect(field(page, 'Opacity')).toHaveValue('50%');
+});
+
+test('Escape in a number field cancels the typed value', async ({ page }) => {
+  await open(page);
+  await page.getByRole('treeitem', { name: /Waves/ }).click();
+  const tr = field(page, 'Translucency');
+  await tr.fill('80');
+  await tr.press('Escape');
+  await expect(tr).toHaveValue('45%');
+  await expect(page.getByText('— Edited')).toHaveCount(0);
+});
+
+test('a renamed document stays edited after undo', async ({ page }) => {
+  await open(page);
+  await page.getByTitle('Rename', { exact: true }).first().click();
+  const nameBox = page.getByRole('textbox', { name: 'Document name' });
+  await nameBox.fill('Renamed');
+  await nameBox.press('Enter');
+  await expect(page.getByText('— Edited')).toBeVisible();
+  await page.getByRole('treeitem', { name: /Waves/ }).click();
+  const tr = field(page, 'Translucency');
+  await tr.fill('60');
+  await tr.press('Enter');
+  await page.getByRole('button', { name: /^Undo/ }).click();
+  await expect(tr).toHaveValue('45%');
+  await expect(page.getByText('— Edited')).toBeVisible();
+});
+
+test('a group dropped on the lower half of a layer row goes after that group', async ({ page }) => {
+  await open(page);
+  const back = page.getByRole('treeitem', { name: /Wave Back/ });
+  const box = (await back.boundingBox())!;
+  await page.getByRole('treeitem', { name: /Sun/ }).first().dragTo(back, { targetPosition: { x: box.width / 2, y: box.height - 3 } });
+  const names = (await page.getByRole('treeitem').allInnerTexts()).map((n) => n.split('\n')[0]!.trim());
+  expect(names.indexOf('Waves')).toBeLessThan(names.indexOf('Sun'));
+  expect(names.indexOf('Wave Back')).toBeLessThan(names.indexOf('Sun'));
+});
+
+test('paste style keeps the target visible', async ({ page }) => {
+  await open(page);
+  await page.getByRole('treeitem', { name: /Wave Front/ }).click();
+  await page.locator('body').press('Control+Shift+h');
+  await page.locator('body').press('Control+Alt+c');
+  await page.getByRole('treeitem', { name: /Wave Back/ }).click();
+  await page.locator('body').press('Control+Alt+v');
+  const back = page.getByRole('treeitem', { name: /Wave Back/ });
+  await expect(back.getByRole('button', { name: 'Show', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('treeitem', { name: /Wave Front/ }).getByRole('button', { name: 'Show', exact: true })).toHaveCount(1);
+});
+
+test('shortcuts do not edit the document while the export sheet is open', async ({ page }) => {
+  await open(page);
+  await page.getByRole('treeitem', { name: /Wave Back/ }).click();
+  const before = await page.getByRole('treeitem').count();
+  await page.locator('body').press('Control+Shift+e');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Control+d');
+  await page.keyboard.press('Control+g');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('treeitem')).toHaveCount(before);
+  await expect(page.getByText('— Edited')).toHaveCount(0);
+});

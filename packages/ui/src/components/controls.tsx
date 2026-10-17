@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { beginGesture, endGesture } from '../store/doc';
+import { beginGesture, endGesture, isGestureKey } from '../store/doc';
 import { t } from '../i18n';
 import { evalNumber } from '../lib/geometry';
 
@@ -47,22 +47,31 @@ export function Segmented<T extends string>({
 }
 
 export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  // with several items that differ, show a neutral "mixed" switch; clicking turns everything on
+  const mixed = useContext(MixedCtx);
   return (
     <button
       type="button"
       role="switch"
-      aria-checked={checked}
+      aria-checked={mixed ? 'mixed' : checked}
       aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={cx('relative h-4 w-[26px] shrink-0 rounded-full transition-colors duration-75', checked ? 'bg-accent' : 'bg-control')}
+      title={mixed ? t('mixedHint') : undefined}
+      onClick={() => onChange(mixed ? true : !checked)}
+      className={cx('relative h-4 w-[26px] shrink-0 rounded-full transition-colors duration-75', mixed ? 'bg-control' : checked ? 'bg-accent' : 'bg-control')}
     >
-      <span className={cx('absolute top-0.5 h-3 w-3 rounded-full bg-white transition-[left] duration-150', checked ? 'left-3' : 'left-0.5')} />
+      {mixed ? (
+        <span className="absolute top-[7px] left-[7px] h-0.5 w-3 rounded-full bg-t2" />
+      ) : (
+        <span className={cx('absolute top-0.5 h-3 w-3 rounded-full bg-white transition-[left] duration-150', checked ? 'left-3' : 'left-0.5')} />
+      )}
     </button>
   );
 }
 
 /** True while the inspector shows a value that differs between the selected items. */
 export const MixedCtx = createContext(false);
+/** For a plain numeric attribute with mixed values: steps every item from its own value. */
+export const StepCtx = createContext<((delta: number, min: number, max: number) => void) | null>(null);
 
 /** Numeric text field: ↑↓ ±step, ⇧ ×10, ⌥ ×0.1. Commits on Enter / blur. */
 export function NumberField({
@@ -92,10 +101,13 @@ export function NumberField({
   className?: string;
 }) {
   const mixedCtx = useContext(MixedCtx);
+  const stepEach = useContext(StepCtx);
   const mixed = mixedProp ?? mixedCtx;
   const shown = (v: number) => (mixed ? '—' : format(v));
   const [text, setText] = useState(shown(value));
   const focused = useRef(false);
+  /** set by Escape so the blur that follows doesn't commit the typed text */
+  const cancelled = useRef(false);
   /** text shown when the field was focused: leaving it unchanged commits nothing */
   const startText = useRef<string | null>(null);
   useEffect(() => {
@@ -137,6 +149,12 @@ export function NumberField({
         }}
         onBlur={() => {
           focused.current = false;
+          if (cancelled.current) {
+            cancelled.current = false;
+            startText.current = null;
+            setText(shown(value));
+            return;
+          }
           const unchanged = text === startText.current || text.trim() === '';
           startText.current = null;
           if (unchanged) setText(shown(value));
@@ -146,12 +164,17 @@ export function NumberField({
         onKeyDown={(e) => {
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
           if (e.key === 'Escape') {
-            setText(format(value));
+            cancelled.current = true;
             (e.target as HTMLInputElement).blur();
           }
           if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
             e.preventDefault();
             const m = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
+            // the items have different values: step each from its own (stepping from the first would overwrite the others)
+            if (mixed) {
+              stepEach?.((e.key === 'ArrowUp' ? 1 : -1) * step * m, min, max);
+              return;
+            }
             commit(+(value + (e.key === 'ArrowUp' ? 1 : -1) * step * m).toFixed(6));
           }
         }}
@@ -195,8 +218,8 @@ export function Slider({
         value={value}
         onPointerDown={beginGesture}
         onPointerUp={endGesture}
-        onKeyDown={beginGesture}
-        onKeyUp={endGesture}
+        onKeyDown={(e) => isGestureKey(e) && beginGesture()}
+        onKeyUp={(e) => isGestureKey(e) && endGesture()}
         onBlur={endGesture}
         onDoubleClick={() => defaultValue !== undefined && defaultValue !== value && onChange(defaultValue)}
         onChange={(e) => Number(e.target.value) !== value && onChange(Number(e.target.value))}
@@ -262,11 +285,19 @@ export function Select<T extends string>({
 
 export function ColorWell({ value, onChange, label }: { value: string; onChange: (hex: string) => void; label: string }) {
   const id = useId();
+  const input = useRef<HTMLInputElement>(null);
+  // the native "change" event fires when the picker closes (React's onChange is the live "input" event)
+  useEffect(() => {
+    const el = input.current;
+    el?.addEventListener('change', endGesture);
+    return () => el?.removeEventListener('change', endGesture);
+  }, []);
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <label htmlFor={id} className="relative h-[22px] w-[22px] shrink-0 overflow-hidden rounded-[4px] border border-hairline" style={{ background: value }}>
         <input
           id={id}
+          ref={input}
           type="color"
           aria-label={label}
           value={value}

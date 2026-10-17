@@ -1,7 +1,7 @@
 import { parseColor } from './color';
-import { assetText, decodePng, svgFacts } from './image';
+import { assetText, decodePng, svgFacts, svgSize } from './image';
 import type { IconDocument, NodeRef } from './model';
-import { baseValue, overriddenAppearances, resolveProp } from './prop';
+import { baseValue, resolveProp, variantsOf } from './prop';
 import { attrsFor, validateAttr, type NodeKind, type Position } from './schema';
 import { nameOf } from './ops';
 
@@ -73,9 +73,11 @@ export function validate(doc: IconDocument): Issue[] {
   let anyTinted = false;
   const scan = (props: IconDocument['props']) => {
     for (const p of Object.values(props)) {
-      const o = overriddenAppearances(p);
-      if (o.includes('dark')) anyDark = true;
-      if (o.includes('tinted')) anyTinted = true;
+      // any dark / tinted variant counts, also one limited to a platform
+      for (const v of variantsOf(p)) {
+        if (v.appearance === 'dark') anyDark = true;
+        if (v.appearance === 'tinted') anyTinted = true;
+      }
     }
   };
   scan(doc.props);
@@ -107,19 +109,24 @@ export function validate(doc: IconDocument): Issue[] {
         }
         if (Math.abs(a.width - a.height) > 0.5) {
           push('V-03', `"${n}" is ${round(a.width)}×${round(a.height)}. Apple recommends square, unmasked layers.`, lName, lref);
-        } else if (a.kind !== 'svg' && a.width * pos.scale < 1024) {
-          push('V-03', `"${n}" is ${a.width}×${a.height} px and may look soft at 1024. Use 1024×1024 or a vector.`, lName, lref);
+        } else if (a.kind !== 'svg' && pos.scale > 1.01) {
+          // images are placed at 1 px = 1 pt, so only enlarging them makes them soft
+          push('V-03', `"${n}" (${a.width}×${a.height} px) is scaled up ${round(pos.scale)}× and may look soft. Use a larger image or a vector.`, lName, lref);
         }
         if (a.kind === 'png' && a.width === a.height && a.width >= 256) {
           const bmp = safeDecode(a.bytes);
           if (bmp && looksPreMasked(bmp)) push('V-04', `"${n}" seems to have rounded corners baked in. The system masks icons itself.`, lName, lref);
         }
         if (a.kind === 'svg') {
-          const f = svgFacts(assetText(a));
+          const text = assetText(a);
+          const f = svgFacts(text);
+          // stroke widths are in viewBox units; convert to points
+          const vb = /<svg\b[^>]*\sviewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)/i.exec(text);
+          const unit = vb && Number(vb[1]) > 0 ? svgSize(text).width / Number(vb[1]) : 1;
           if (f.hasText) push('V-07', `"${n}" contains <text>. Convert text to outlines.`, lName, lref);
           if (f.hasFilter) push('V-07', `"${n}" uses SVG filters (blur, glow, shadow). Let the system draw effects.`, lName, lref);
-          if (f.minStrokeWidth !== null && f.minStrokeWidth * pos.scale < 10)
-            push('V-06', `"${n}" has strokes as thin as ${f.minStrokeWidth}. They'll be under 0.16 px at 16 px.`, lName, lref);
+          if (f.minStrokeWidth !== null && f.minStrokeWidth * unit * pos.scale < 10)
+            push('V-06', `"${n}" has strokes as thin as ${round(f.minStrokeWidth * unit)} pt. They'll be under 0.16 px at 16 px.`, lName, lref);
         }
       }
     }

@@ -51,7 +51,10 @@ export function isSafeBundlePath(rel: string): boolean {
 }
 
 export function readBundle(files: FileMap): IconDocument & { extra: FileMap } {
-  const jsonKey = Object.keys(files).find((k) => k === 'icon.json' || k.endsWith('/icon.json'));
+  // the shallowest icon.json is the bundle's own (a nested Backup/icon.json must not win)
+  const jsonKey = Object.keys(files)
+    .filter((k) => k === 'icon.json' || k.endsWith('/icon.json'))
+    .sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length)[0];
   if (!jsonKey) throw new IconFormatError('icon.json not found in the bundle');
   const prefix = jsonKey.slice(0, -'icon.json'.length);
   const base = parseIconJson(strFromU8(files[jsonKey]!));
@@ -61,7 +64,7 @@ export function readBundle(files: FileMap): IconDocument & { extra: FileMap } {
     if (!k.startsWith(prefix) || k === jsonKey || k.endsWith('/')) continue;
     const rel = k.slice(prefix.length);
     // never carry unsafe paths (zip-slip), hidden files or folders (.git, .env) into saves and exports
-    if (!isSafeBundlePath(rel)) continue;
+    if (!isSafeBundlePath(rel) || rel.endsWith('.fresnel-tmp')) continue;
     if (rel.startsWith('Assets/') && rel.split('/').length === 2) {
       const name = rel.slice('Assets/'.length);
       if (name) assets[name] = makeAsset(name, v);
@@ -105,10 +108,13 @@ export function syncFeatures(doc: Pick<IconDocument, 'props' | 'groups'>): void 
 export function writeBundle(doc: IconDocument, extra: FileMap = {}): FileMap {
   // never mutate the caller's document (the UI shares it with undo history)
   const synced = { props: { ...doc.props }, groups: doc.groups };
+  if (synced.props.features) synced.props.features = structuredClone(synced.props.features);
   syncFeatures(synced);
   const files: FileMap = { ...extra };
-  files['icon.json'] = strToU8(serializeIconJson({ ...doc, props: synced.props }));
   for (const a of Object.values(doc.assets)) files[`Assets/${a.name}`] = a.bytes;
+  // icon.json last: a writer that stops halfway leaves the old icon.json, never one pointing at missing assets
+  delete files['icon.json'];
+  files['icon.json'] = strToU8(serializeIconJson({ ...doc, props: synced.props }));
   return files;
 }
 

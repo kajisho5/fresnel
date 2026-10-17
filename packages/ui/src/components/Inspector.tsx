@@ -15,6 +15,7 @@ import {
   withAlpha,
   parseColor,
   resolveProp,
+  resetOverride,
   rgbaToHex,
   setProp as coreSetProp,
   toRGBA,
@@ -32,7 +33,7 @@ import { APPEARANCE_MODE_LABEL, VARIANT_LABEL, currentAppearance, currentAppeara
 import { t, useLang } from '../i18n';
 import { getPlatform } from '../actions';
 import { useRename } from '../commands';
-import { ColorWell, MixedCtx, NumberField, Segmented, Select, Slider, Toggle, cx } from './controls';
+import { ColorWell, MixedCtx, NumberField, StepCtx, Segmented, Select, Slider, Toggle, cx } from './controls';
 import { AlignRow } from './AlignBar';
 import { useMenu } from './Menu';
 import { editIdiom, idiomLabel } from '../lib/idiom';
@@ -94,7 +95,8 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicit
   const targets = useContext(TargetsCtx) ?? [nodeRef];
   const props = propsOf(doc, targets[0]!);
   const prop = props?.[attr];
-  const scope = ui.sectionScope[section];
+  // same effective scope as the section header shows (no current variant → "all")
+  const scope = sectionVariantLabel(section) ? ui.sectionScope[section] : 'all';
   const variant = scope === 'variant' ? sectionVariant(section) : null;
   const ctx = { appearance: currentAppearance(ui), idiom: ui.platform as Idiom };
   const shownIn = (d: IconDocument, r: NodeRef, v: Variant | null): T => {
@@ -121,7 +123,22 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicit
   };
   /** control setter: in a variant, "back to default" must be stored explicitly, or the base value would show through */
   const setFor = (v: Variant | null) => (val: unknown) => write(v)(val === null && v ? (explicitDefault !== undefined ? explicitDefault : fallback) : val);
-  const variants = variantsOf(prop);
+  /** removes a variant from every target (null would mean "off" for some attributes) */
+  const removeVariant = (v: Variant) =>
+    useDoc.getState().mutate((d) => {
+      for (const r of targets) resetOverride(d, r, attr, v);
+    });
+  // variant rows: every variant any selected item has (values shown from the first item that has it)
+  const variants: Variant[] = [];
+  for (const r of targets)
+    for (const v of variantsOf(propsOf(doc, r)?.[attr])) if (!variants.some((x) => x.appearance === v.appearance && x.idiom === v.idiom)) variants.push(v);
+  const variantValueOf = (v: Variant) => {
+    for (const r of targets) {
+      const e = propsOf(doc, r)?.[attr]?.specs?.find((x) => x.appearance === v.appearance && x.idiom === v.idiom);
+      if (e) return e.value as T;
+    }
+    return undefined;
+  };
   const curAppearance = currentAppearanceKey(ui);
   const varyOptions: { label: string; v: Variant }[] = [
     ...(curAppearance ? [{ label: `${t('varyFor')} ${APPEARANCE_MODE_LABEL[ui.appearanceMode]}`, v: { appearance: curAppearance as AppearanceKey } }] : []),
@@ -142,7 +159,8 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicit
                 useMenu.getState().show(
                   r.left,
                   r.bottom + 4,
-                  varyOptions.map((o) => ({ label: o.label, onSelect: () => write(o.v)(resolveProp(prop, ctx, value) ?? value) })),
+                  // each item starts its new variant from its own current value
+                  varyOptions.map((o) => ({ label: o.label, onSelect: () => write(o.v)((cur: T) => cur) })),
                 );
               }}
               className="flex h-4 w-4 items-center justify-center rounded text-t3 opacity-0 group-hover/setting:opacity-100 hover:bg-hover hover:text-t1 focus:opacity-100"
@@ -152,12 +170,22 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicit
           )}
         </div>
         <div className={cx('flex min-w-0 flex-1 items-center gap-2', wide ? 'justify-start' : 'justify-end')} title={mixed ? t('mixedHint') : undefined}>
-          <MixedCtx.Provider value={mixed}>{control(value, setFor(variant))}</MixedCtx.Provider>
+          <MixedCtx.Provider value={mixed}>
+            <StepCtx.Provider
+              value={
+                typeof fallback === 'number'
+                  ? (d, min, max) => write(variant)((cur: T) => (typeof cur === 'number' ? Math.min(max, Math.max(min, +(cur + d).toFixed(6))) : cur))
+                  : null
+              }
+            >
+              {control(value, setFor(variant))}
+            </StepCtx.Provider>
+          </MixedCtx.Provider>
         </div>
       </div>
       {scope === 'all' &&
         variants.map((v) => {
-          const vv = prop?.specs?.find((e) => e.appearance === v.appearance && e.idiom === v.idiom)?.value as T;
+          const vv = variantValueOf(v);
           const active =
             (v.appearance === undefined || v.appearance === curAppearance) && (v.idiom === undefined || v.idiom === ui.platform || (v.idiom === 'square' && ui.platform !== 'watchOS'));
           return (
@@ -167,7 +195,7 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicit
                   type="button"
                   aria-label={`${t('removeVariant')} ${VARIANT_LABEL(v)}`}
                   title={t('removeVariant')}
-                  onClick={() => write(v)(null)}
+                  onClick={() => removeVariant(v)}
                   className="flex h-4 w-4 items-center justify-center rounded text-t3 hover:bg-hover hover:text-err"
                 >
                   <X className="h-3 w-3" />
@@ -405,6 +433,7 @@ function GroupStyle({ id }: { id: string }) {
           section="glass"
           attr="refractivity"
           label={t('refraction')}
+          explicitDefault={{ enabled: false, strength: 0.5, depth: 0.5 }}
           fallback={null as { enabled: boolean; strength: number; depth: number } | null}
           control={(v, set) => {
             const r = v ?? { enabled: false, strength: 0.5, depth: 0.5 };

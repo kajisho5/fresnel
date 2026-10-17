@@ -1,4 +1,4 @@
-import { makeAsset, type Asset } from '@fresnel/core';
+import { addGroup, addLayer, makeAsset, nameOf, type Asset } from '@fresnel/core';
 import { bundleFromFiles, webPlatform, type Platform } from './platform';
 import { useDoc } from './store/doc';
 import { useUI } from './store/ui';
@@ -80,14 +80,21 @@ export function addAssets(assets: Asset[], groupName?: string) {
   if (ok.length < assets.length) useUI.getState().toast('error', t('invalidFile'));
   if (!ok.length) return;
   const sorted = [...ok].sort(byName);
-  let gid: string | null = targetGroup();
+  let ids: string[] | undefined;
   if (groupName) {
-    const doc = useDoc.getState().doc;
-    gid = doc.groups.find((g) => (g.props.name?.plain?.value ?? '') === groupName)?.id ?? useDoc.getState().addGroup(groupName) ?? null;
-    if (!gid) return;
+    // the folder's group and its layers are one undo step
+    ids = useDoc.getState().mutate((d) => {
+      const g = d.groups.find((x) => nameOf(x) === groupName) ?? addGroup(d, { name: groupName });
+      // add the highest name first so the first file ends up frontmost
+      return [...sorted]
+        .reverse()
+        .map((a) => addLayer(d, g.id, a).id)
+        .reverse();
+    });
+  } else {
+    // addLayers puts its first item in front, so pass the highest name first
+    ids = useDoc.getState().addLayers(targetGroup(), sorted.reverse());
   }
-  // addLayers puts its first item in front, so pass the highest name first
-  const ids = useDoc.getState().addLayers(gid, sorted.reverse());
   if (ids?.length) useUI.getState().select({ kind: 'layer', id: ids[0]! });
 }
 

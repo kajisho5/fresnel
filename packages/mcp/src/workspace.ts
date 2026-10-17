@@ -1,4 +1,4 @@
-import { realpath, stat } from 'node:fs/promises';
+import { lstat, realpath, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { loadIcon, saveIcon, type LoadedIcon } from '@fresnel/core/node';
 
@@ -30,6 +30,11 @@ export class Workspace {
       try {
         const real = await realpath(probe);
         const full = suffix ? resolve(real, suffix) : real;
+        if (suffix) {
+          // realpath failed below `real`: if that entry exists anyway it is a dangling symlink, whose target could be anywhere
+          const first = resolve(real, suffix.split(sep)[0]!);
+          if (await lstat(first).then(() => true, () => false)) throw new Error(`Access denied: ${p} goes through a symbolic link that points nowhere`);
+        }
         if (!(await this.allowed(full))) throw new Error(`Access denied: ${p} is outside the allowed roots (${this.roots.join(', ')})`);
         if (opts.mustExist && full !== real) throw new Error(`Not found: ${p}`);
         return full;
@@ -54,15 +59,17 @@ export class Workspace {
         /* root may not exist yet */
       }
       const rel = relative(root, full);
-      if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) return true;
+      if (rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))) return true;
     }
     return false;
   }
 
   /** Normalizes an icon path: accepts "Foo", "Foo.icon", ".../Foo.icon/icon.json". */
   async iconPath(p: string, opts: { mustExist?: boolean } = {}): Promise<string> {
-    let q = p.trim();
+    let q = (typeof p === 'string' ? p : '').trim().replace(/[\\/]+$/, '');
     if (q.endsWith('/icon.json') || q.endsWith('\\icon.json')) q = q.slice(0, -'/icon.json'.length);
+    const base = q.split(/[\\/]/).pop() ?? '';
+    if (!base || base === '.icon' || base === '.icon.zip' || base === '.' || base === '..') throw new Error(`Invalid icon path "${p}": give a name such as "MyApp.icon"`);
     if (!q.endsWith('.icon') && !q.endsWith('.icon.zip')) q = `${q}.icon`;
     const full = await this.resolve(q, opts);
     if (opts.mustExist) {

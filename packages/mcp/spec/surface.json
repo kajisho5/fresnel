@@ -3,497 +3,614 @@
   "tools": {
     "icon_create": {
       "cli": "create",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "background": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "string"
-          },
-          "required": false
+          }
         },
         "dark_background": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "string"
-          },
-          "required": false
+          }
         },
         "watch": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "boolean"
-          },
-          "required": false
+          }
         },
         "overwrite": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "boolean"
-          },
-          "required": false
+          }
         },
         "dry_run": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "boolean"
-          },
-          "required": false
+          }
         }
-      }
+      },
+      "output_keys": [
+        "created",
+        "groups"
+      ]
     },
     "icon_inspect": {
       "cli": "inspect",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         }
-      }
+      },
+      "output_keys": [
+        "assets",
+        "document",
+        "groups",
+        "order"
+      ]
     },
     "icon_add_group": {
       "cli": "add-group",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "name": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "index": {
-          "kind": {
-            "type": "number"
-          },
-          "required": false
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
         },
         "props": {
-          "kind": {
-            "type": "json"
-          },
-          "required": false
+          "required": false,
+          "schema": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
         },
         "dry_run": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "boolean"
-          },
-          "required": false
+          }
         }
-      }
+      },
+      "output_keys": [
+        "added",
+        "groups"
+      ]
     },
     "icon_add_layer": {
       "cli": "add-layer",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "group": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "svg": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "string"
-          },
-          "required": false
+          }
         },
         "source": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "string"
-          },
-          "required": false
+          }
         },
         "png_base64": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "string"
-          },
-          "required": false
+          }
         },
         "file_name": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "string"
-          },
-          "required": false
+          }
         },
         "name": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "string"
-          },
-          "required": false
+          }
         },
         "index": {
-          "kind": {
-            "type": "number"
-          },
-          "required": false
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
         },
         "props": {
-          "kind": {
-            "type": "json"
-          },
-          "required": false
+          "required": false,
+          "schema": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
         },
         "dry_run": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "boolean"
-          },
-          "required": false
+          }
         }
-      }
+      },
+      "output_keys": [
+        "added",
+        "size",
+        "warnings"
+      ]
     },
     "icon_set": {
       "cli": "set",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "target": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "props": {
-          "kind": {
-            "type": "json"
-          },
-          "required": true
+          "required": true,
+          "schema": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
         },
         "appearance": {
-          "kind": {
-            "type": "enum",
-            "values": [
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
               "dark",
               "tinted"
             ]
-          },
-          "required": false
+          }
         },
         "platform": {
-          "kind": {
-            "type": "enum",
-            "values": [
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
               "iOS",
               "macOS",
-              "square",
-              "watchOS"
+              "watchOS",
+              "square"
             ]
-          },
-          "required": false
+          }
         },
         "dry_run": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "boolean"
-          },
-          "required": false
+          }
         }
-      }
+      },
+      "output_keys": [
+        "now",
+        "target"
+      ]
     },
     "icon_move": {
       "cli": "move",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "target": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "index": {
-          "kind": {
-            "type": "number"
-          },
-          "required": true
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
         },
         "to_group": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "string"
-          },
-          "required": false
+          }
         },
         "dry_run": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "boolean"
-          },
-          "required": false
+          }
         }
-      }
+      },
+      "output_keys": [
+        "groups"
+      ]
     },
     "icon_align": {
       "cli": "align",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "targets": {
-          "kind": {
+          "required": true,
+          "schema": {
+            "minItems": 1,
             "type": "array",
-            "of": {
+            "items": {
               "type": "string"
             }
-          },
-          "required": true
+          }
         },
         "how": {
-          "kind": {
-            "type": "enum",
-            "values": [
-              "bottom",
-              "distribute-horizontal",
-              "distribute-vertical",
-              "hcenter",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
               "left",
+              "hcenter",
               "right",
               "top",
-              "vcenter"
+              "vcenter",
+              "bottom",
+              "distribute-horizontal",
+              "distribute-vertical"
             ]
-          },
-          "required": true
+          }
         },
         "basis": {
-          "kind": {
-            "type": "enum",
-            "values": [
-              "canvas",
-              "selection"
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "selection",
+              "canvas"
             ]
-          },
-          "required": false
+          }
         },
         "platform": {
-          "kind": {
-            "type": "enum",
-            "values": [
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
               "iOS",
               "macOS",
-              "square",
-              "watchOS"
+              "watchOS",
+              "square"
             ]
-          },
-          "required": false
+          }
         },
         "dry_run": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "boolean"
-          },
-          "required": false
+          }
         }
-      }
+      },
+      "output_keys": [
+        "moved",
+        "positions"
+      ]
     },
     "icon_remove": {
       "cli": "remove",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "target": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "dry_run": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "boolean"
-          },
-          "required": false
+          }
         }
-      }
+      },
+      "output_keys": [
+        "groups",
+        "removed"
+      ]
     },
     "icon_validate": {
       "cli": "validate",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         }
-      }
+      },
+      "output_keys": [
+        "issues",
+        "summary"
+      ]
     },
     "icon_render": {
       "cli": "render",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "appearance": {
-          "kind": {
-            "type": "enum",
-            "values": [
-              "clear-dark",
-              "clear-light",
-              "dark",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
               "default",
-              "tinted-dark",
-              "tinted-light"
+              "dark",
+              "clear-light",
+              "clear-dark",
+              "tinted-light",
+              "tinted-dark"
             ]
-          },
-          "required": false
+          }
         },
         "platform": {
-          "kind": {
-            "type": "enum",
-            "values": [
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
               "iOS",
               "macOS",
               "watchOS"
             ]
-          },
-          "required": false
+          }
         },
         "size": {
-          "kind": {
-            "type": "number"
-          },
-          "required": false
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 16,
+            "maximum": 2048
+          }
         },
         "mask": {
-          "kind": {
-            "type": "enum",
-            "values": [
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "squircle",
               "circle",
-              "none",
-              "squircle"
+              "none"
             ]
-          },
-          "required": false
+          }
         },
         "tint": {
-          "kind": {
-            "type": "string"
-          },
-          "required": false
+          "required": false,
+          "schema": {
+            "type": "string",
+            "pattern": "^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$"
+          }
         },
         "light_angle": {
-          "kind": {
-            "type": "number"
-          },
-          "required": false
+          "required": false,
+          "schema": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          }
         },
         "out": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "string"
-          },
-          "required": false
+          }
         }
-      }
+      },
+      "output_keys": [
+        "appearance"
+      ]
     },
     "icon_render_sheet": {
       "cli": "render-sheet",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "cell": {
-          "kind": {
-            "type": "number"
-          },
-          "required": false
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 96,
+            "maximum": 600
+          }
         },
         "tint": {
-          "kind": {
-            "type": "string"
-          },
-          "required": false
+          "required": false,
+          "schema": {
+            "type": "string",
+            "pattern": "^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$"
+          }
         },
         "out": {
-          "kind": {
+          "required": false,
+          "schema": {
             "type": "string"
-          },
-          "required": false
+          }
         }
-      }
+      },
+      "output_keys": [
+        "appearances"
+      ]
     },
     "icon_export": {
       "cli": "export",
+      "positional": [
+        "path"
+      ],
       "args": {
         "path": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "out_dir": {
-          "kind": {
+          "required": true,
+          "schema": {
             "type": "string"
-          },
-          "required": true
+          }
         },
         "formats": {
-          "kind": {
+          "required": true,
+          "schema": {
+            "minItems": 1,
             "type": "array",
-            "of": {
-              "type": "enum",
-              "values": [
-                "appiconset",
-                "icns",
+            "items": {
+              "type": "string",
+              "enum": [
                 "icon",
+                "icns",
+                "appiconset",
                 "png"
               ]
             }
-          },
-          "required": true
+          }
         },
         "sizes": {
-          "kind": {
+          "required": false,
+          "schema": {
+            "minItems": 1,
             "type": "array",
-            "of": {
-              "type": "number"
+            "items": {
+              "type": "integer",
+              "minimum": 16,
+              "maximum": 2048
             }
-          },
-          "required": false
+          }
         },
         "appearances": {
-          "kind": {
+          "required": false,
+          "schema": {
+            "minItems": 1,
             "type": "array",
-            "of": {
-              "type": "enum",
-              "values": [
-                "clear-dark",
-                "clear-light",
-                "dark",
+            "items": {
+              "type": "string",
+              "enum": [
                 "default",
-                "tinted-dark",
-                "tinted-light"
+                "dark",
+                "clear-light",
+                "clear-dark",
+                "tinted-light",
+                "tinted-dark"
               ]
             }
-          },
-          "required": false
+          }
         }
-      }
+      },
+      "output_keys": [
+        "files",
+        "out_dir",
+        "written"
+      ]
     }
   }
 }

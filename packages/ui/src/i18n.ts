@@ -457,6 +457,8 @@ let lang: Lang = (() => {
   return typeof navigator !== 'undefined' && navigator.language?.startsWith('ja') ? 'ja' : 'en';
 })();
 const listeners = new Set<() => void>();
+// the page language follows the UI language from the start (CJK glyph choice, screen readers)
+if (typeof document !== 'undefined') document.documentElement.lang = lang;
 
 export function setLang(l: Lang) {
   lang = l;

@@ -34,6 +34,7 @@ export function writeProps(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const emitted = new Set<string>();
+  let fromFile = true;
   const emit = (rawKey: string) => {
     if (emitted.has(rawKey)) return;
     if (rawKey in structural) {
@@ -41,17 +42,30 @@ export function writeProps(
       emitted.add(rawKey);
       return;
     }
+    // a "*-specializations" key that wasn't a valid list is kept verbatim under its own name
+    const literal = props[rawKey];
+    if (rawKey.endsWith(SPEC_SUFFIX) && literal?.plain) {
+      out[rawKey] = structuredClone(literal.plain.value);
+      emitted.add(rawKey);
+      return;
+    }
     const isSpec = rawKey.endsWith(SPEC_SUFFIX);
     const base = isSpec ? rawKey.slice(0, -SPEC_SUFFIX.length) : rawKey;
     const p = props[base];
     if (!p) return;
-    if (isSpec ? p.specs && p.specs.length > 0 : p.plain) {
+    // an empty list that was in the file stays (keys from `order` only); new empty lists are not written
+    if (isSpec ? p.specs && (p.specs.length > 0 || fromFile) : p.plain) {
       out[rawKey] = structuredClone(isSpec ? p.specs : p.plain!.value);
       emitted.add(rawKey);
     }
   };
   for (const k of order) emit(k);
+  fromFile = false;
   for (const [base, p] of Object.entries(props)) {
+    if (base.endsWith(SPEC_SUFFIX) && p.plain) {
+      emit(base);
+      continue;
+    }
     if (p.plain) emit(base);
     if (p.specs?.length) emit(base + SPEC_SUFFIX);
   }

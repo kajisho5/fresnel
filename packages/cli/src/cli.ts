@@ -72,24 +72,14 @@ Docs: https://github.com/kajisho5/fresnel
 
 /** Runs one registry tool from argv and prints its JSON result. */
 async function callTool(t: ToolDef, argv: string[]) {
-  if (argv.includes('--help') || argv.includes('-h')) {
+  const { args, roots, help } = parseToolArgv(t, argv);
+  if (help) {
     process.stdout.write(toolHelp(t));
     return;
   }
   // --root / -r limits file access like the MCP server; without it the CLI may use any path
-  const roots: string[] = [];
-  const rest: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
-    if (a === '--root' || a === '-r') {
-      const v = argv[++i];
-      if (!v) throw new Error('--root needs a directory');
-      roots.push(v);
-    } else if (a.startsWith('--root=')) roots.push(a.slice(7));
-    else rest.push(a);
-  }
   const ws = new Workspace(roots, { unrestricted: roots.length === 0 });
-  const { data, image } = await runTool(ws, t, parseToolArgv(t, rest));
+  const { data, image } = await runTool(ws, t, args);
   if (image && !data.saved) process.stderr.write('fresnel: the PNG was not saved; pass --out <file.png> to keep it\n');
   process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
 }

@@ -390,7 +390,8 @@ function Stage() {
     }
     // keep a selected group selected when clicking one of its layers (drag the whole group)
     const target: ItemRef = selected.some((r) => r.kind === 'group' && r.id === hit.groupId) ? { kind: 'group', id: hit.groupId } : { kind: 'layer', id: hit.id };
-    if (e.metaKey || e.ctrlKey) {
+    if (additive) {
+      // ⌘ and ⇧ both add to / remove from the selection (⇧ also extends the marquee)
       ui.toggleSelect(target);
       return;
     }
