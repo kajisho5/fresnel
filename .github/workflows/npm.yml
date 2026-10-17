@@ -11,12 +11,20 @@ on:
       tag:
         description: Tag to publish, e.g. v0.1.0
         required: true
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+    secrets:
+      NPM_TOKEN:
+        required: false
 
 permissions:
   contents: read
 
 env:
-  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  TAG: ${{ inputs.tag || github.event.inputs.tag || github.ref_name }}
 
 jobs:
   npm:

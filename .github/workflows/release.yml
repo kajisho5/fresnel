@@ -1,7 +1,8 @@
 # Release: push a tag like v0.1.0.
 #   1. desktop  : macOS (universal, Developer ID signed + notarized), Windows and Linux builds → draft GitHub release
 #   2. publish  : un-drafts the release once every build succeeded
-# npm packages are published by npm.yml (same tag, or run it by hand).
+# npm packages are published by npm.yml (on the tag push, or called from here on a manual run).
+# Manual run (Actions → Release → Run workflow, e.g. from the GitHub app): creates the tag on main first.
 #
 # Secrets (distributed from kajisho5/runway by its sync-secrets workflow; see runway's README):
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64, APPLE_TEAM_ID  App Store Connect API key (notarization)
@@ -16,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing tag to (re)build, e.g. v0.1.0
+        description: Version tag, e.g. v0.1.0 (created on main if it doesn't exist yet)
         required: true
 
 permissions:
@@ -26,7 +27,40 @@ env:
   TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
+  # Manual runs create the tag on main (a tag pushed with GITHUB_TOKEN doesn't start other workflows,
+  # so this workflow also calls npm.yml itself in that case).
+  tag:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Create the tag if needed
+        run: |
+          set -euo pipefail
+          case "$TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::Tag must look like v1.2.3"; exit 1 ;; esac
+          if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then echo "$TAG already exists"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "fresnel ${TAG#v}"
+          git push origin "refs/tags/$TAG"
+
+  npm:
+    needs: tag
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/npm.yml
+    with:
+      tag: ${{ github.event.inputs.tag }}
+    permissions:
+      contents: read
+      id-token: write
+    secrets: inherit
+
   desktop:
+    needs: tag
+    if: ${{ !cancelled() && (needs.tag.result == 'success' || needs.tag.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix:
@@ -161,7 +195,8 @@ jobs:
         run: rm -rf "$RUNNER_TEMP/sign"
 
   publish:
-    needs: [desktop]
+    needs: [desktop, npm]
+    if: ${{ !cancelled() && needs.desktop.result == 'success' && (needs.npm.result == 'success' || needs.npm.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: Publish the draft release
