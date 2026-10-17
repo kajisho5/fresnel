@@ -15,14 +15,30 @@ MCP server for [fresnel](https://github.com/kajisho5/fresnel). It lets AI agents
 - **Network:** none.
 
 **Tools**
-- `icon_create`, `icon_inspect`, `icon_add_group`, `icon_add_layer`, `icon_set` (with `dark` / `tinted` overrides), `icon_move`, `icon_remove`
-- `icon_validate` checks against the schema and Apple's HIG.
-- `icon_render` and `icon_render_sheet` return PNG previews as images.
-- `icon_export` writes `.icon`, `.icns`, `AppIcon.appiconset` and PNG sets.
+
+<!-- spec:tools -->
+12 tools, 3 resources and 1 prompt — generated from the [SPEC contract](https://github.com/kajisho5/fresnel/blob/main/docs/contract.json); every tool also runs from the CLI.
+
+| Tool (MCP) | CLI | Role | What it does |
+|---|---|---|---|
+| `icon_create` | `fresnel create` | create | Creates a new `.icon` with a background (color, gradient or system) and an optional dark background |
+| `icon_inspect` | `fresnel call icon_inspect` | inspect | Lists groups, layers, attributes and every variant |
+| `icon_add_group` | `fresnel add-group` | edit | Adds a group (the unit that carries the glass settings) |
+| `icon_add_layer` | `fresnel add-layer` | edit | Adds a layer from inline SVG, an image file or PNG data |
+| `icon_set` | `fresnel set` | edit | Sets attributes for all appearances, or a dark / tinted / platform variant |
+| `icon_move` | `fresnel move` | edit | Reorders groups and layers, or moves a layer to another group |
+| `icon_align` | `fresnel align` | edit | Aligns or distributes groups or layers (to each other or to the canvas) |
+| `icon_remove` | `fresnel remove` | edit | Deletes a group or layer (unused assets go too) |
+| `icon_validate` | `fresnel call icon_validate` | check | Runs the icon checks (schema and Apple HIG) |
+| `icon_render` | `fresnel call icon_render` | render | Returns a PNG of one appearance as an image the model can see |
+| `icon_render_sheet` | `fresnel render-sheet` | render | Returns all six appearances side by side as one PNG |
+| `icon_export` | `fresnel call icon_export` | export | Writes `.icon`, `.icns`, `AppIcon.appiconset` and PNG sets |
+<!-- /spec:tools -->
 
 **Resources**
 - `fresnel://guide/icon-design`
 - `fresnel://schema/icon-json`
+- `fresnel://contract` — the SPEC contract: every tool with its input/output JSON Schema, role, verification steps and examples (also `npx fresnel-icon contract --json`)
 
 **Prompt**
 - `design_app_icon`

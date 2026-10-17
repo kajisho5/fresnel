@@ -51,7 +51,7 @@ describe('fresnel-mcp over stdio', () => {
       'icon_validate',
     ]);
     const res = await client.listResources();
-    expect(res.resources.map((r) => r.uri).sort()).toEqual(['fresnel://guide/icon-design', 'fresnel://schema/icon-json']);
+    expect(res.resources.map((r) => r.uri).sort()).toEqual(['fresnel://contract', 'fresnel://guide/icon-design', 'fresnel://schema/icon-json']);
     const guide = await client.readResource({ uri: 'fresnel://guide/icon-design' });
     expect((guide.contents[0] as { text: string }).text).toContain('unmasked');
     const prompts = await client.listPrompts();
@@ -104,7 +104,7 @@ describe('fresnel-mcp over stdio', () => {
     expect(json(r).groups.map((g: { target: string }) => g.target)).toEqual(['Back', 'Shape']);
     r = await call('icon_move', { path: 'Star', target: 'Back', index: 1 });
     expect(r.isError).toBeFalsy();
-    expect(json(r).map((g: { group: string }) => g.group)).toEqual(['Shape', 'Back']);
+    expect(json(r).groups.map((g: { group: string }) => g.group)).toEqual(['Shape', 'Back']);
     r = await call('icon_remove', { path: 'Star', target: 'Back' });
     expect(json(r).removed).toBe('Back');
     expect(await readdir(join(dir, 'Star.icon/Assets'))).toEqual(['Star.svg']);

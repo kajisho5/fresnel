@@ -1,6 +1,6 @@
 {
   "name": "fresnel-mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "MCP server for fresnel: let AI agents create, edit, preview and export Liquid Glass app icons (.icon bundles)",
   "license": "MIT",
   "type": "module",

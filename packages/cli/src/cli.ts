@@ -8,6 +8,11 @@
  *   fresnel render <Name.icon> [-a appearance] [-s size] [--sheet] [-o out.png]
  *   fresnel export <Name.icon> -o <dir> [--formats icon,icns,appiconset,png] [--sizes 1024,512] [--appearances default,dark]
  *   fresnel mcp [--root <dir>]...
+ *   fresnel contract [--json]                      SPEC contract (docs/design/spec.md)
+ *   fresnel call <tool_id> [args]                  run any MCP tool
+ *   fresnel <tool> [args]                          create, add-group, add-layer, set, move, align, remove, render-sheet
+ *
+ * Everything except the legacy commands is generated from the SPEC registry (packages/mcp/src/spec.ts).
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -31,10 +36,15 @@ import {
 } from '@fresnel/core';
 import { loadIcon, saveIcon, writeFiles } from '@fresnel/core/node';
 import { nodeRasterizer, renderPng, renderSheetPng } from '@fresnel/render/node';
+import { cliCommand, parseToolArgv, toolHelp } from '../../mcp/src/cliargs';
+import { buildContract } from '../../mcp/src/contract';
+import { CONTRACT_VERSION, runTool, toolByCli, toolById, TOOLS, type ToolDef } from '../../mcp/src/spec';
 import { createServer, inspect, VERSION } from '../../mcp/src/tools';
 import { Workspace } from '../../mcp/src/workspace';
 
-const HELP = `fresnel ${VERSION} — Liquid Glass app icon tools
+const pad = (s: string, n: number) => (s.length >= n ? `${s}  ` : s.padEnd(n));
+
+const HELP = `fresnel ${VERSION} — Liquid Glass app icon tools (contract ${CONTRACT_VERSION})
 
 Usage
   fresnel build <spec.json> -o <Name.icon>      Build an .icon bundle from a JSON spec
@@ -50,9 +60,39 @@ Usage
 
 Render options: --mask squircle|circle|none, --tint #RRGGBB (tinted appearances)
 
+Tools (same arguments as the MCP server; JSON on stdout; "fresnel <command> --help" for details)
+${TOOLS.map((t) => `  ${pad(`fresnel ${cliCommand(t)}`, 31)}${t.summary.replace(/`/g, '')}`).join('\n')}
+
+  fresnel contract [--json]                      Print the SPEC contract (every tool, its schemas, roles and examples)
+  Options for tools: --args '<json>' (all arguments at once), --root <dir> (limit file access)
+
 Appearances: ${APPEARANCES.join(', ')}
 Docs: https://github.com/kajisho5/fresnel
 `;
+
+/** Runs one registry tool from argv and prints its JSON result. */
+async function callTool(t: ToolDef, argv: string[]) {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    process.stdout.write(toolHelp(t));
+    return;
+  }
+  // --root / -r limits file access like the MCP server; without it the CLI may use any path
+  const roots: string[] = [];
+  const rest: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === '--root' || a === '-r') {
+      const v = argv[++i];
+      if (!v) throw new Error('--root needs a directory');
+      roots.push(v);
+    } else if (a.startsWith('--root=')) roots.push(a.slice(7));
+    else rest.push(a);
+  }
+  const ws = new Workspace(roots, { unrestricted: roots.length === 0 });
+  const { data, image } = await runTool(ws, t, parseToolArgv(t, rest));
+  if (image && !data.saved) process.stderr.write('fresnel: the PNG was not saved; pass --out <file.png> to keep it\n');
+  process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
+}
 
 interface SpecLayer {
   file?: string;
@@ -138,6 +178,28 @@ async function main() {
   }
   if (cmd === '-v' || cmd === '--version') {
     console.log(VERSION);
+    return;
+  }
+  if (cmd === 'contract') {
+    // the contract is JSON either way; --json is accepted for parity with ffmpeg-skill
+    if (rest.some((a) => a !== '--json')) throw new Error('Usage: fresnel contract [--json]');
+    process.stdout.write(`${JSON.stringify(buildContract(), null, 2)}\n`);
+    return;
+  }
+  if (cmd === 'call') {
+    const [id, ...args] = rest;
+    if (!id || id === '--help' || id === '-h') {
+      process.stdout.write(`Usage: fresnel call <tool_id> [args]\nTools: ${TOOLS.map((t) => t.id).join(', ')}\n`);
+      return;
+    }
+    const t = toolById(id) ?? toolById(`icon_${id.replace(/-/g, '_')}`);
+    if (!t) throw new Error(`Unknown tool "${id}". Tools: ${TOOLS.map((x) => x.id).join(', ')}`);
+    await callTool(t, args);
+    return;
+  }
+  const short = toolByCli(cmd);
+  if (short && cliCommand(short) === short.cli) {
+    await callTool(short, rest);
     return;
   }
   const { values, positionals } = parseArgs({

@@ -38,6 +38,7 @@ Build layered app icons for iOS, iPadOS, macOS and watchOS in the browser, on ma
 - [Icon checks](#icon-checks)
 - [MCP server](#mcp-server)
 - [Command line](#command-line)
+- [SPEC contract](#spec-contract)
 - [Requirements](#requirements)
 - [Privacy](#privacy)
 - [FAQ](#faq)
@@ -193,19 +194,26 @@ Claude Desktop, Cursor and other clients use an `mcpServers` entry in the client
 
 Then ask, for example: *"Design a Liquid Glass icon for a habit-tracking app called Streaks in ~/Icons, show me all appearances, and export an appiconset."*
 
-| Tool | What it does |
-|---|---|
-| `icon_create` | Creates a new `.icon` with a background (`"#336699"`, `"gradient:#top,#bottom"`, `"system-dark"`, …) and an optional dark background |
-| `icon_inspect` | Lists groups, layers, attributes and every variant |
-| `icon_add_group` / `icon_add_layer` | Adds a group, or a layer from inline SVG, a file or PNG data |
-| `icon_set` | Sets attributes for all appearances, or a variant with `appearance` (`dark`, `tinted`) and/or `platform` (`iOS`, `macOS`, `watchOS`) |
-| `icon_move` / `icon_remove` | Reorders or deletes groups and layers |
-| `icon_align` | Aligns or distributes groups or layers (to each other or to the canvas) |
-| `icon_validate` | Runs the [icon checks](#icon-checks) |
-| `icon_render` / `icon_render_sheet` | Returns a PNG of one appearance or of all six, as an image the model can see |
-| `icon_export` | Writes `.icon`, `.icns`, `AppIcon.appiconset` and PNG sets |
+<!-- spec:tools -->
+12 tools, 3 resources and 1 prompt — generated from the [SPEC contract](https://github.com/kajisho5/fresnel/blob/main/docs/contract.json); every tool also runs from the CLI.
 
-The server also provides two resources, `fresnel://guide/icon-design` (Apple's icon rules, condensed) and `fresnel://schema/icon-json` (attribute reference), and one prompt, `design_app_icon`. If you have the icon open in the desktop app while the agent edits it, the app reloads it.
+| Tool (MCP) | CLI | Role | What it does |
+|---|---|---|---|
+| `icon_create` | `fresnel create` | create | Creates a new `.icon` with a background (color, gradient or system) and an optional dark background |
+| `icon_inspect` | `fresnel call icon_inspect` | inspect | Lists groups, layers, attributes and every variant |
+| `icon_add_group` | `fresnel add-group` | edit | Adds a group (the unit that carries the glass settings) |
+| `icon_add_layer` | `fresnel add-layer` | edit | Adds a layer from inline SVG, an image file or PNG data |
+| `icon_set` | `fresnel set` | edit | Sets attributes for all appearances, or a dark / tinted / platform variant |
+| `icon_move` | `fresnel move` | edit | Reorders groups and layers, or moves a layer to another group |
+| `icon_align` | `fresnel align` | edit | Aligns or distributes groups or layers (to each other or to the canvas) |
+| `icon_remove` | `fresnel remove` | edit | Deletes a group or layer (unused assets go too) |
+| `icon_validate` | `fresnel call icon_validate` | check | Runs the icon checks (schema and Apple HIG) |
+| `icon_render` | `fresnel call icon_render` | render | Returns a PNG of one appearance as an image the model can see |
+| `icon_render_sheet` | `fresnel render-sheet` | render | Returns all six appearances side by side as one PNG |
+| `icon_export` | `fresnel call icon_export` | export | Writes `.icon`, `.icns`, `AppIcon.appiconset` and PNG sets |
+<!-- /spec:tools -->
+
+The server also provides three resources, `fresnel://guide/icon-design` (Apple's icon rules, condensed), `fresnel://schema/icon-json` (attribute reference) and `fresnel://contract` (the [SPEC contract](#spec-contract)), and one prompt, `design_app_icon`. If you have the icon open in the desktop app while the agent edits it, the app reloads it.
 
 ## Command line
 
@@ -221,8 +229,29 @@ npx fresnel-icon --help                     # or: npm i -g fresnel-icon, then "f
 | `fresnel render MyApp.icon [-a dark] [-s 512] [--mask circle] [--sheet] [-o out.png]` | Renders a preview PNG, or a sheet of all appearances |
 | `fresnel export MyApp.icon -o dist [--formats icon,icns,appiconset,png] [--sizes …] [--appearances …] [--tint #RRGGBB]` | Exports |
 | `fresnel mcp --root .` | Starts the MCP server |
+| `fresnel <tool> …` / `fresnel call <tool_id> …` | Runs any MCP tool with the same arguments and prints JSON (`fresnel set MyApp.icon --target Front --props '{"specular":true}'`). See the table in [MCP server](#mcp-server) |
+| `fresnel contract --json` | Prints the [SPEC contract](#spec-contract) |
 
 Appearances: `default`, `dark`, `clear-light`, `clear-dark`, `tinted-light`, `tinted-dark`.
+
+## SPEC contract
+
+fresnel describes its own tools in one machine-readable contract (SPEC, the Self-Producing Execution Contract, the same system as [ffmpeg-skill](https://github.com/kajisho5/ffmpeg-skill)). Each tool is defined once, with a zod schema, and everything else is generated from it: the MCP tool list, the CLI commands and `--help`, the tables in this README and [`docs/contract.json`](docs/contract.json).
+
+```bash
+npx fresnel-icon contract --json      # or read the MCP resource fresnel://contract
+```
+
+For each tool the contract gives the input and output JSON Schema, its role (`create`, `inspect`, `edit`, `check`, `render`, `export`), capabilities, whether it changes the file, whether it can do a `dry_run`, how to verify the result (and whether that needs looking at a render), and runnable examples. It also lists every `icon.json` attribute with its JSON Schema and default.
+
+**Stability.** `contract_version` is separate from the npm version.
+
+| Change | Contract version |
+|---|---|
+| New tools, new optional arguments, new output keys, new enum values, better wording | Same major (1.x) |
+| Removing or renaming a tool or argument, optional → required, type changes, removing an enum value or output key | Next major (2.0) |
+
+CI compares the tools with a frozen snapshot ([`packages/mcp/spec/surface.json`](packages/mcp/spec/surface.json)) and fails on breaking changes, runs every example in the contract against the real server, and checks that the generated files are current (`pnpm spec`). The legacy CLI commands (`build`, `inspect`, `validate`, `render`, `export`, `mcp`) keep their arguments throughout 1.x.
 
 ## Requirements
 

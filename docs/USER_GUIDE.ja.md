@@ -333,6 +333,19 @@ fresnel export App/AppIcon.icon -o build/icons --formats png --sizes 1024,512,18
 fresnel render App/AppIcon.icon --sheet -o icon-sheet.png
 ```
 
+MCP のツールは、すべて同じ引数でコマンドとしても使えます（引数名の `_` は `-` にします）。結果は JSON で標準出力に出るので、スクリプトから読めます。`--dry-run` を付けると、保存せずに編集の結果だけを確かめられます。
+
+```bash
+fresnel create Demo.icon --background "gradient:#3D7BFF,#0E2A8A"
+fresnel add-layer Demo.icon --group Front --source star.svg --name Star
+fresnel set Demo.icon --target Front/Star --props '{"fill":"#FFD60A"}' --appearance dark
+fresnel align Demo.icon --targets Front/Star --how hcenter --dry-run
+fresnel align --help            # 全引数と実行例
+fresnel contract --json         # 全ツールの機械可読な契約（SPEC）
+```
+
+`inspect`・`validate`・`render`・`export` は従来の形のままです。これらを MCP と同じ引数で呼ぶときは `fresnel call icon_render …` を使います。
+
 ---
 
 ## 困ったとき

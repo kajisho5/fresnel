@@ -1,0 +1,499 @@
+{
+  "contract_version": "1.0",
+  "tools": {
+    "icon_create": {
+      "cli": "create",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "background": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        },
+        "dark_background": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        },
+        "watch": {
+          "kind": {
+            "type": "boolean"
+          },
+          "required": false
+        },
+        "overwrite": {
+          "kind": {
+            "type": "boolean"
+          },
+          "required": false
+        },
+        "dry_run": {
+          "kind": {
+            "type": "boolean"
+          },
+          "required": false
+        }
+      }
+    },
+    "icon_inspect": {
+      "cli": "inspect",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        }
+      }
+    },
+    "icon_add_group": {
+      "cli": "add-group",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "name": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "index": {
+          "kind": {
+            "type": "number"
+          },
+          "required": false
+        },
+        "props": {
+          "kind": {
+            "type": "json"
+          },
+          "required": false
+        },
+        "dry_run": {
+          "kind": {
+            "type": "boolean"
+          },
+          "required": false
+        }
+      }
+    },
+    "icon_add_layer": {
+      "cli": "add-layer",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "group": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "svg": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        },
+        "source": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        },
+        "png_base64": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        },
+        "file_name": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        },
+        "name": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        },
+        "index": {
+          "kind": {
+            "type": "number"
+          },
+          "required": false
+        },
+        "props": {
+          "kind": {
+            "type": "json"
+          },
+          "required": false
+        },
+        "dry_run": {
+          "kind": {
+            "type": "boolean"
+          },
+          "required": false
+        }
+      }
+    },
+    "icon_set": {
+      "cli": "set",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "target": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "props": {
+          "kind": {
+            "type": "json"
+          },
+          "required": true
+        },
+        "appearance": {
+          "kind": {
+            "type": "enum",
+            "values": [
+              "dark",
+              "tinted"
+            ]
+          },
+          "required": false
+        },
+        "platform": {
+          "kind": {
+            "type": "enum",
+            "values": [
+              "iOS",
+              "macOS",
+              "square",
+              "watchOS"
+            ]
+          },
+          "required": false
+        },
+        "dry_run": {
+          "kind": {
+            "type": "boolean"
+          },
+          "required": false
+        }
+      }
+    },
+    "icon_move": {
+      "cli": "move",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "target": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "index": {
+          "kind": {
+            "type": "number"
+          },
+          "required": true
+        },
+        "to_group": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        },
+        "dry_run": {
+          "kind": {
+            "type": "boolean"
+          },
+          "required": false
+        }
+      }
+    },
+    "icon_align": {
+      "cli": "align",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "targets": {
+          "kind": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
+          },
+          "required": true
+        },
+        "how": {
+          "kind": {
+            "type": "enum",
+            "values": [
+              "bottom",
+              "distribute-horizontal",
+              "distribute-vertical",
+              "hcenter",
+              "left",
+              "right",
+              "top",
+              "vcenter"
+            ]
+          },
+          "required": true
+        },
+        "basis": {
+          "kind": {
+            "type": "enum",
+            "values": [
+              "canvas",
+              "selection"
+            ]
+          },
+          "required": false
+        },
+        "platform": {
+          "kind": {
+            "type": "enum",
+            "values": [
+              "iOS",
+              "macOS",
+              "square",
+              "watchOS"
+            ]
+          },
+          "required": false
+        },
+        "dry_run": {
+          "kind": {
+            "type": "boolean"
+          },
+          "required": false
+        }
+      }
+    },
+    "icon_remove": {
+      "cli": "remove",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "target": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "dry_run": {
+          "kind": {
+            "type": "boolean"
+          },
+          "required": false
+        }
+      }
+    },
+    "icon_validate": {
+      "cli": "validate",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        }
+      }
+    },
+    "icon_render": {
+      "cli": "render",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "appearance": {
+          "kind": {
+            "type": "enum",
+            "values": [
+              "clear-dark",
+              "clear-light",
+              "dark",
+              "default",
+              "tinted-dark",
+              "tinted-light"
+            ]
+          },
+          "required": false
+        },
+        "platform": {
+          "kind": {
+            "type": "enum",
+            "values": [
+              "iOS",
+              "macOS",
+              "watchOS"
+            ]
+          },
+          "required": false
+        },
+        "size": {
+          "kind": {
+            "type": "number"
+          },
+          "required": false
+        },
+        "mask": {
+          "kind": {
+            "type": "enum",
+            "values": [
+              "circle",
+              "none",
+              "squircle"
+            ]
+          },
+          "required": false
+        },
+        "tint": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        },
+        "light_angle": {
+          "kind": {
+            "type": "number"
+          },
+          "required": false
+        },
+        "out": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        }
+      }
+    },
+    "icon_render_sheet": {
+      "cli": "render-sheet",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "cell": {
+          "kind": {
+            "type": "number"
+          },
+          "required": false
+        },
+        "tint": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        },
+        "out": {
+          "kind": {
+            "type": "string"
+          },
+          "required": false
+        }
+      }
+    },
+    "icon_export": {
+      "cli": "export",
+      "args": {
+        "path": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "out_dir": {
+          "kind": {
+            "type": "string"
+          },
+          "required": true
+        },
+        "formats": {
+          "kind": {
+            "type": "array",
+            "of": {
+              "type": "enum",
+              "values": [
+                "appiconset",
+                "icns",
+                "icon",
+                "png"
+              ]
+            }
+          },
+          "required": true
+        },
+        "sizes": {
+          "kind": {
+            "type": "array",
+            "of": {
+              "type": "number"
+            }
+          },
+          "required": false
+        },
+        "appearances": {
+          "kind": {
+            "type": "array",
+            "of": {
+              "type": "enum",
+              "values": [
+                "clear-dark",
+                "clear-light",
+                "dark",
+                "default",
+                "tinted-dark",
+                "tinted-light"
+              ]
+            }
+          },
+          "required": false
+        }
+      }
+    }
+  }
+}

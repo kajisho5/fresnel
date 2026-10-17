@@ -4,12 +4,19 @@ All notable changes to fresnel are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-17
+
 ### Added
+- **SPEC contract** (the system from ffmpeg-skill). Every tool is defined once (zod schema, role, capabilities, verification, examples); the MCP tool list, CLI commands and help, README tables and `docs/contract.json` are generated from it. `fresnel contract --json` and the MCP resource `fresnel://contract`. CI fails on drift and on breaking changes to the frozen tool surface, and runs every example.
+- Every MCP tool runs from the CLI with the same arguments: `fresnel create`, `add-group`, `add-layer`, `set`, `move`, `align`, `remove`, `render-sheet`, and `fresnel call <tool_id>` for all of them. `--args '<json>'`, generated `--help` per command.
+- `dry_run` for the editing tools (`icon_create`, `icon_add_group`, `icon_add_layer`, `icon_set`, `icon_move`, `icon_align`, `icon_remove`).
+- MCP tools declare an output schema and return `structuredContent`.
 - Multiple selection: ⌘-click, ⇧-click ranges in the sidebar, ⌘A, and a marquee on the canvas. Edit, move, hide, group, delete and paste styles on several items at once; differing values show as Mixed.
 - Align (six edges and centers) and Distribute (horizontal, vertical), to the selection or the canvas, from the inspector, the menu and context menus. MCP tool `icon_align`.
 - Menus support submenus (mouse and keyboard).
 
 ### Changed
+- `icon_move` returns `{ "groups": [...] }` instead of a bare list (tool results must be objects for `structuredContent`).
 - Layer gradients are measured against the drawn shape's bounds (transparent margins ignored), with y pointing down, matching real Icon Composer files and their renders.
 - Specular "Automatic" picks Inside or Outside from the brightness of the glass layers and the background, following Apple's description.
 - The preview's light comes from straight above, like Icon Composer's current generation.
@@ -73,6 +80,7 @@ First public version. The web app is live at https://kajisho5.github.io/fresnel/
 - Imported SVG is cleaned with a tokenizer and an allowlist (no scripts, event handlers, external references or animation).
 - The MCP server only reads and writes inside its `--root` folders.
 
-[Unreleased]: https://github.com/kajisho5/fresnel/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/kajisho5/fresnel/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kajisho5/fresnel/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/kajisho5/fresnel/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/kajisho5/fresnel/releases/tag/v0.1.0

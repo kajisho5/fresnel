@@ -332,6 +332,19 @@ fresnel export App/AppIcon.icon -o build/icons --formats png --sizes 1024,512,18
 fresnel render App/AppIcon.icon --sheet -o icon-sheet.png
 ```
 
+Every MCP tool also works as a command, with the same arguments (`_` becomes `-`). The result is JSON on stdout, so scripts can read it. `--dry-run` shows what an edit would do without saving.
+
+```bash
+fresnel create Demo.icon --background "gradient:#3D7BFF,#0E2A8A"
+fresnel add-layer Demo.icon --group Front --source star.svg --name Star
+fresnel set Demo.icon --target Front/Star --props '{"fill":"#FFD60A"}' --appearance dark
+fresnel align Demo.icon --targets Front/Star --how hcenter --dry-run
+fresnel align --help            # every argument and an example
+fresnel contract --json         # all tools, machine-readable (SPEC)
+```
+
+`inspect`, `validate`, `render` and `export` keep their original form; to call those tools with MCP arguments use `fresnel call icon_render …`.
+
 ---
 
 ## Troubleshooting

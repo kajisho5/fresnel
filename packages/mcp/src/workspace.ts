@@ -11,8 +11,12 @@ export class Workspace {
   readonly roots: string[];
   private locks = new Map<string, Promise<unknown>>();
 
-  constructor(roots: string[]) {
+  /** With `unrestricted` (the CLI without --root) any path is allowed; relative paths still start at the first root. */
+  readonly unrestricted: boolean;
+
+  constructor(roots: string[], opts: { unrestricted?: boolean } = {}) {
     this.roots = (roots.length ? roots : [process.cwd()]).map((r) => resolve(r));
+    this.unrestricted = !!opts.unrestricted;
   }
 
   /** Resolves a user path (relative paths are relative to the first root) and checks it's allowed. */
@@ -41,6 +45,7 @@ export class Workspace {
   }
 
   private async allowed(full: string): Promise<boolean> {
+    if (this.unrestricted) return true;
     for (const r of this.roots) {
       let root = r;
       try {
@@ -68,12 +73,12 @@ export class Workspace {
   }
 
   /** Serializes edits per file so concurrent tool calls can't clobber each other. */
-  async edit<T>(path: string, fn: (doc: LoadedIcon) => T | Promise<T>): Promise<T> {
+  async edit<T>(path: string, fn: (doc: LoadedIcon) => T | Promise<T>, opts: { dryRun?: boolean } = {}): Promise<T> {
     return this.withLock(path, async () => {
       if (path.endsWith('.zip')) throw new Error('Editing .icon.zip is not supported; unzip it first or use the .icon folder');
       const doc = await loadIcon(path);
       const result = await fn(doc);
-      await saveIcon(path, doc);
+      if (!opts.dryRun) await saveIcon(path, doc);
       return result;
     });
   }
