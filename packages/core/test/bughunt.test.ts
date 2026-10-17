@@ -107,6 +107,14 @@ describe('ops', () => {
     removeNode(doc, resolvePath(doc, 'G/b'));
     expect(Object.keys(doc.assets).sort()).toEqual(['a.svg', 'spare.svg']);
   });
+  it('replacing a layer image drops the old image only when unused', () => {
+    const { doc } = docWith('a', 'b');
+    doc.assets['c.svg'] = asset('c.svg');
+    setProp(doc, resolvePath(doc, 'G/a'), 'image-name', 'c.svg');
+    expect(Object.keys(doc.assets).sort()).toEqual(['b.svg', 'c.svg']);
+    setProp(doc, resolvePath(doc, 'G/b'), 'image-name', 'c.svg', 'dark');
+    expect(Object.keys(doc.assets).sort()).toEqual(['b.svg', 'c.svg']);
+  });
   it('names are unique regardless of case, and ambiguous paths are reported', () => {
     const doc = createDocument();
     addGroup(doc, { name: 'Group' });

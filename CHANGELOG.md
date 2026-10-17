@@ -4,6 +4,12 @@ All notable changes to fresnel are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+- A layer with a fill near the edge of a scaled-down group was cut off in previews and exports (regression in 0.2.1).
+- Replacing a layer's image removes the old image from Assets/ when nothing else uses it.
+- A watchOS preview with a squircle or no-mask setting keeps its usual size; only the unmasked watch export uses the whole 1088 pt canvas.
+- The macOS template shadow follows a larger inset; a path below a file reports "not a folder" instead of a symlink error.
+
 ## [0.2.1] - 2026-10-17
 
 ### Security

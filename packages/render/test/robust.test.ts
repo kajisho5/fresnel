@@ -162,4 +162,26 @@ describe('render robustness', () => {
     expect(await corner('#FF0000FF')).toBe(red);
     expect(await corner('banana')).not.toBe(red);
   }, 60_000);
+
+  it('a filled layer near the edge of a scaled-down group is not cut off', async () => {
+    const core = await import('@fresnel/core');
+    const sq = core.makeAsset('sq.svg', u8('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="#000"/></svg>'));
+    const left = async (filled: boolean) => {
+      const doc = core.createDocument();
+      const g = core.addGroup(doc, { name: 'G' });
+      const l = core.addLayer(doc, g.id, sq, { name: 'L' });
+      core.setProp(doc, { kind: 'group', id: g.id }, 'position', { scale: 0.5, 'translation-in-points': [0, 0] });
+      core.setProp(doc, { kind: 'group', id: g.id }, 'shadow', { kind: 'none', opacity: 0 });
+      core.setProp(doc, { kind: 'group', id: g.id }, 'translucency', { enabled: false, value: 0 });
+      core.setProp(doc, { kind: 'layer', id: l.id }, 'position', { scale: 1, 'translation-in-points': [-850, 0] });
+      if (filled) core.setProp(doc, { kind: 'layer', id: l.id }, 'fill', { solid: 'srgb:0,0,0,1' });
+      const b = decodePng(await renderPng(doc, { size: 256, mask: 'none', effects: false }))!;
+      let n = 0;
+      for (let y = 0; y < 256; y++) for (let x = 0; x < 64; x++) if (b.data[(y * 256 + x) * 4]! < 60) n++;
+      return n;
+    };
+    const plain = await left(false);
+    expect(plain).toBeGreaterThan(300);
+    expect(Math.abs((await left(true)) - plain)).toBeLessThan(plain * 0.1);
+  }, 60_000);
 });

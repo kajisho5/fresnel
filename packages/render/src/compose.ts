@@ -233,7 +233,8 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   // watchOS: the canvas is 1088 pt, 32 pt larger on each side than the shared 1024 artwork.
   // Sources: HIG App icons (watchOS layout size 1088×1088), WWDC25 #220 ("the 1088 pixel canvas overshoots
   // our rounded rectangle"), Xcode "Creating your app icon using Icon Composer" (1088 × 1088 for Apple Watch).
-  const P = mask === 'circle' || ctx.idiom === 'watchOS' ? 32 : 0;
+  // (a squircle or circle preview of the watch keeps its usual size; only the unmasked export uses the whole watch canvas)
+  const P = mask === 'circle' || (mask === 'none' && ctx.idiom === 'watchOS') ? 32 : 0;
   const full = { x: -P, y: -P, w: C + 2 * P, h: C + 2 * P };
   // an explicit Mono ("tinted") fill override replaces the system-generated clear / tinted background [推測]
   // (Clear and Tinted are both "Mono" in Icon Composer, so the "tinted" variant is used for both)
@@ -296,6 +297,11 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
     const gs = gp?.scale ?? 1;
     const gtx = gp?.tx ?? 0;
     const gty = gp?.ty ?? 0;
+    // the canvas ±PAD region expressed inside the group's transform (layer masks and specular filters live there)
+    const gx0 = H + (-PAD - H - gtx) / gs;
+    const gy0 = H + (-PAD - H - gty) / gs;
+    const gw = (C + 2 * PAD) / gs;
+    const localRegion = `x="${n(gx0)}" y="${n(gy0)}" width="${n(gw)}" height="${n(gw)}"`;
     const layers = FRONT_FIRST ? [...g.layers].reverse() : [...g.layers];
     const placed: Placed[] = [];
     for (const l of layers) {
@@ -350,7 +356,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
       let el: string;
       if (paint) {
         const mid = defs.id('lm');
-        defs.add(`<mask id="${mid}" mask-type="alpha" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="${-PAD}" y="${-PAD}" width="${C + 2 * PAD}" height="${C + 2 * PAD}"><use href="#${iid}" ${place}/></mask>`);
+        defs.add(`<mask id="${mid}" mask-type="alpha" style="mask-type:alpha" maskUnits="userSpaceOnUse" ${localRegion}><use href="#${iid}" ${place}/></mask>`);
         el = `<rect x="${n(p.x)}" y="${n(p.y)}" width="${n(p.w)}" height="${n(p.h)}" fill="${paint}" mask="url(#${mid})"/>`;
       } else {
         el = `<use href="#${iid}" ${place}/>`;
@@ -368,10 +374,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
     // Filter regions are fixed in user space (canvas ±1024 pt), never relative to an element's bounds:
     // resvg panics on huge relative regions (items far off the canvas), and this also caps memory.
     const canvasRegion = `filterUnits="userSpaceOnUse" x="${-PAD}" y="${-PAD}" width="${C + 2 * PAD}" height="${C + 2 * PAD}"`;
-    // the same region expressed inside the group's transform (specular filters live there)
-    const gx0 = H + (-PAD - H - gtx) / gs;
-    const gy0 = H + (-PAD - H - gty) / gs;
-    const groupRegion = `filterUnits="userSpaceOnUse" x="${n(gx0)}" y="${n(gy0)}" width="${n((C + 2 * PAD) / gs)}" height="${n((C + 2 * PAD) / gs)}"`;
+    const groupRegion = `filterUnits="userSpaceOnUse" ${localRegion}`;
     const contentId = defs.id('gc');
     defs.add(`<g id="${contentId}"${gTransform}>${layerEls.join('')}</g>`);
     contentIds.push(contentId);
@@ -530,7 +533,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
     // classic macOS template: the body casts a soft shadow onto the transparent margin
     const sid = defs.id('ish');
     defs.add(
-      `<filter id="${sid}" ${'filterUnits="userSpaceOnUse"'} x="${-PAD}" y="${-PAD}" width="${C + 2 * PAD}" height="${C + 2 * PAD}"><feGaussianBlur in="SourceAlpha" stdDeviation="${n(C * 0.012)}"/>` +
+      `<filter id="${sid}" filterUnits="userSpaceOnUse" x="${-(M + 64)}" y="${-(M + 64)}" width="${C + 2 * (M + 64)}" height="${C + 2 * (M + 64)}"><feGaussianBlur in="SourceAlpha" stdDeviation="${n(C * 0.012)}"/>` +
         `<feOffset dy="${n(C * 0.012)}" result="b"/><feFlood flood-color="#000" flood-opacity="0.3"/><feComposite in2="b" operator="in" result="s"/>` +
         `<feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`,
     );

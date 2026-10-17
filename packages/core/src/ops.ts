@@ -222,6 +222,13 @@ export function setProp(
   /** internal: node not yet inserted */
   detached?: LayerNode,
 ): void {
+  // replacing a layer's image drops the old one from Assets/ if nothing else uses it
+  const old = key === 'image-name' && !detached && ref.kind === 'layer' ? imagesOf([findLayer(doc, ref.id)?.layer].filter((l): l is LayerNode => !!l)) : null;
+  setPropRaw(doc, ref, key, value, appearance, detached);
+  if (old?.size) pruneAssets(doc, old);
+}
+
+function setPropRaw(doc: IconDocument, ref: NodeRef, key: string, value: unknown, appearance?: VariantArg, detached?: LayerNode): void {
   const node = detached ? { kind: 'layer' as NodeKind, props: detached.props } : nodeOf(doc, ref);
   if (key === 'layers' || key === 'groups') throw new OpError(`"${key}" can't be set directly`);
   if (key.endsWith('-specializations')) throw new OpError(`Set "${key.replace(/-specializations$/, '')}" with an appearance instead`);

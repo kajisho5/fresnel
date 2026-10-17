@@ -33,7 +33,9 @@ export class Workspace {
         if (suffix) {
           // realpath failed below `real`: if that entry exists anyway it is a dangling symlink, whose target could be anywhere
           const first = resolve(real, suffix.split(sep)[0]!);
-          if (await lstat(first).then(() => true, () => false)) throw new Error(`Access denied: ${p} goes through a symbolic link that points nowhere`);
+          const st = await lstat(first).catch(() => null);
+          if (st?.isSymbolicLink()) throw new Error(`Access denied: ${p} goes through a symbolic link that points nowhere`);
+          if (st) throw new Error(`Invalid path: ${p} (${suffix.split(sep)[0]} is not a folder)`);
         }
         if (!(await this.allowed(full))) throw new Error(`Access denied: ${p} is outside the allowed roots (${this.roots.join(', ')})`);
         if (opts.mustExist && full !== real) throw new Error(`Not found: ${p}`);
