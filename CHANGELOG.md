@@ -9,6 +9,11 @@ All notable changes to fresnel are listed here. The format follows [Keep a Chang
 - Align (six edges and centers) and Distribute (horizontal, vertical), to the selection or the canvas, from the inspector, the menu and context menus. MCP tool `icon_align`.
 - Menus support submenus (mouse and keyboard).
 
+### Changed
+- Layer gradients are measured against the drawn shape's bounds (transparent margins ignored), with y pointing down, matching real Icon Composer files and their renders.
+- Specular "Automatic" picks Inside or Outside from the brightness of the glass layers and the background, following Apple's description.
+- The preview's light comes from straight above, like Icon Composer's current generation.
+
 ## [0.1.1] - 2026-10-17
 
 ### Added

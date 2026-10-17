@@ -84,3 +84,37 @@ describe('exports', () => {
     expect(unrenderableLayers(doc)).toEqual(['G/P']);
   });
 });
+
+describe('research-backed rendering', () => {
+  it('measures layer gradients against the drawn shape (y down)', async () => {
+    const { renderPng } = await import('../src/node');
+    // a 200 pt square in the middle of a transparent 1024 canvas
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"><rect x="412" y="412" width="200" height="200" fill="#fff"/></svg>';
+    const doc = createDocument({ background: '#808080' });
+    const l = addLayer(doc, addGroup(doc).id, makeAsset('sq.svg', strToU8(svg)), { props: { glass: false } });
+    setProp(doc, { kind: 'layer', id: l.id }, 'fill', {
+      'linear-gradient': ['srgb:0,0,0,1', 'srgb:1,1,1,1'],
+      orientation: { start: { x: 0.5, y: 0 }, stop: { x: 0.5, y: 1 } },
+    });
+    const png = decodePng(await renderPng(doc, { size: 1024, effects: false, mask: 'none' }))!;
+    const px = (x: number, y: number) => png.data[(y * 1024 + x) * 4]!;
+    expect(px(512, 416)).toBeLessThan(30); // top of the square: start color
+    expect(px(512, 607)).toBeGreaterThan(225); // bottom: stop color
+  });
+
+  it('Automatic specular picks inside or outside from the colors', async () => {
+    const { renderSvg } = await import('../src/index');
+    const shape = '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"><circle cx="512" cy="512" r="300" fill="#ffffff"/></svg>';
+    const mk = (bg: string, layerFill: string) => {
+      const doc = createDocument({ background: bg });
+      const g = addGroup(doc);
+      const l = addLayer(doc, g.id, makeAsset('c.svg', strToU8(shape)));
+      setProp(doc, { kind: 'layer', id: l.id }, 'fill', layerFill);
+      return renderSvg(doc, { size: 256 });
+    };
+    // light glass on a dark background → outside (dilated band)
+    expect(mk('#101010', '#ffffff')).toContain('feMorphology');
+    // dark glass on a light background → inside
+    expect(mk('#f0f0f0', '#202020')).not.toContain('feMorphology');
+  });
+});

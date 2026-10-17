@@ -130,7 +130,7 @@ export const useUI = create<UIState>()((set, get) => ({
   previewSize: 'fit',
   zoom: 1,
   effects: prefs.effects ?? true,
-  lightAngle: prefs.lightAngle ?? -45,
+  lightAngle: prefs.lightAngle ?? 0,
   compareSizes: prefs.compareSizes ?? [1024, 128, 64, 32, 16],
   sidebarOpen: true,
   inspectorOpen: true,

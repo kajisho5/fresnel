@@ -29,13 +29,15 @@ import {
   type Translucency,
 } from '@fresnel/core';
 import { maskPath, type MaskShape } from './mask';
+import { contentBoxOf } from './content';
+import { assetLuma, fillLuma } from './luma';
 
 export interface RenderOptions {
   appearance?: Appearance;
   /** output pixel size (width = height). Default 1024 */
   size?: number;
   mask?: MaskShape;
-  /** light direction in degrees: 0 = from top, -45 = from top-left (default) */
+  /** light direction in degrees: 0 = from top (default, Icon Composer's current generation), -45 = from top-left */
   lightAngle?: number;
   /** tint color for tinted appearances, "#RRGGBB". Default #3FA7A0 */
   tint?: string;
@@ -177,7 +179,8 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   const isClear = appearance === 'clear-light' || appearance === 'clear-dark';
   const isTinted = appearance === 'tinted-light' || appearance === 'tinted-dark';
   const tint = hexToRGBA(opts.tint ?? '#3FA7A0');
-  const angle = ((opts.lightAngle ?? -45) * Math.PI) / 180;
+  // Icon Composer's current generation lights icons from straight above (developer.apple.com/icon-composer)
+  const angle = ((opts.lightAngle ?? 0) * Math.PI) / 180;
   const toLight = { x: Math.sin(angle), y: -Math.cos(angle) };
   const defs = new Defs(opts.idPrefix ?? '');
   const body: string[] = [];
@@ -217,6 +220,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
     bgPaint = null;
     darken = 0;
   }
+  const backdropLuma = (fillLuma(isClear || isTinted ? (dark ? 'system-dark' : 'system-light') : bgFill, dark) ?? 0.9) * (1 - darken);
 
   // ------------------------------------------------------------ groups (back to front)
   const groups = FRONT_FIRST ? [...doc.groups].reverse() : [...doc.groups];
@@ -266,6 +270,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
     const imgId = new Map<string, string>();
     const layerEls: string[] = [];
     const glassEls: string[] = [];
+    const glassLumas: number[] = [];
     for (const p of placed) {
       let iid = imgId.get(p.asset.name);
       if (!iid) {
@@ -281,7 +286,10 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
       const fill = resolveProp<Fill | null>(p.layer.props.fill, ctx, null);
       const opacity = resolveProp<number>(p.layer.props.opacity, ctx, 1);
       const blend = cssBlend(resolveProp<string>(p.layer.props['blend-mode'], ctx, 'normal'));
-      const paint = fill && fill !== 'automatic' ? paintFor(fill, defs, { x: p.x, y: p.y, w: p.w, h: p.h }, dark) : null;
+      // gradients are measured against the drawn shape's bounds, not the whole image
+      const cb = contentBoxOf(p.asset);
+      const fbox = cb ? { x: p.x + cb.x * p.w, y: p.y + cb.y * p.h, w: cb.w * p.w, h: cb.h * p.h } : { x: p.x, y: p.y, w: p.w, h: p.h };
+      const paint = fill && fill !== 'automatic' ? paintFor(fill, defs, fbox, dark) : null;
       let el: string;
       if (paint) {
         const mid = defs.id('lm');
@@ -292,7 +300,11 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
       }
       const wrapped = `<g${opacity < 1 ? ` opacity="${n(opacity)}"` : ''}${blend ? ` style="mix-blend-mode:${blend}"` : ''}>${el}</g>`;
       layerEls.push(wrapped);
-      if (resolveProp(p.layer.props.glass, ctx, false)) glassEls.push(`<use href="#${iid}" ${place}/>`);
+      if (resolveProp(p.layer.props.glass, ctx, false)) {
+        glassEls.push(`<use href="#${iid}" ${place}/>`);
+        // the layer's own fill wins over the image's colors
+        glassLumas.push(fill && fill !== 'automatic' ? (fillLuma(fill, dark) ?? assetLuma(p.asset)) : assetLuma(p.asset));
+      }
     }
 
     const gTransform = gpos
@@ -363,7 +375,10 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
     );
 
     // specular highlight on glass layers
-    const specular = resolveProp<boolean | 'inside' | 'outside'>(g.props.specular, ctx, true);
+    const specularSetting = resolveProp<boolean | 'inside' | 'outside'>(g.props.specular, ctx, true);
+    // Automatic: Inside when the glass is darker than the background, Outside when the background is darker
+    const fg = glassLumas.length ? glassLumas.reduce((a, b) => a + b, 0) / glassLumas.length : 1;
+    const specular = specularSetting === true ? (fg < backdropLuma ? 'inside' : 'outside') : specularSetting;
     if (effects && specular && glassEls.length) {
       const k = 7;
       const dx = n(-toLight.x * k);

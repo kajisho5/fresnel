@@ -55,7 +55,10 @@
 - **[事実]** `extended-gray:1.0,1.0` のように、2 成分の色はグレースケール。
 - **[推測]** `groups` と `layers` の配列は**先頭が最前面**。根拠：decant の実装では「.icon lists them front-to-back」としている。glassmith の資料とは矛盾するため、定数 1 か所で切り替えられるようにしておく。
 - **[推測]** `translation-in-points` はキャンバス中心からのオフセットで、**y は下向きが正**。キャンバスは 1024pt（decant の実装に準拠）。画像は「取り込んだときのサイズ × scale」で中央に配置する。
-- **[推測]** `linear-gradient` の `orientation` はレイヤーのバウンディングボックスを基準にした単位座標（範囲外の値もとる）。省略時は上から下。
+- **[強く裏付けあり]** レイヤーの `linear-gradient` の `orientation` は、**描かれた形の外接矩形**（画像の透明な余白を除いた範囲）を 0〜1 とする単位座標で、y は下向き（0 が上）。範囲外の値もとる。根拠：公開リポジトリの実ファイル 321 件（向き付きの塗り 500 個）と、同じコミットで書き出された描画結果の照合（Signal-iOS、FileTerm ほか）。既定は `(0.5,0)→(0.5,0.7)`、色の入れ替えで `(0.5,1)→(0.5,0.3)`。
+- **[不明]** 背景（書類の fill）の `stop.y = 0.7` が描画でどう効くか。実機の書き出しでは 70% で止まらず、上から下まで変化している。fresnel はキャンバス基準のまま。
+- **[事実]** Specular の Automatic は、レイヤーの色と背景の色から Inside / Outside を自動で選ぶ。前景が暗ければ Inside、背景が暗ければ Outside が向く（Apple：developer.apple.com/icon-composer、WWDC26 lab 8012）。判定式は非公開なので、fresnel は輝度の比較で近似する **[推測]**。
+- **[事実]** 現行世代（27）の光は真上から（developer.apple.com/icon-composer「A new, vertical light angle shines from above」）。fresnel の既定の光源角度も真上にした。
 
 - **[事実]** `.icon` → `Assets.car` のコンパイルは Apple の `actool`（Xcode 26 以降）が必要。actool はプロプライエタリで、Mac でしか動かない（出典：wailsapp/wails #4909、glassmith README）。
 
