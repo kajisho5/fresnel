@@ -254,20 +254,22 @@ export function createServer(ws: Workspace): McpServer {
     {
       title: 'Set attributes',
       description:
-        'Sets attributes on the document, a group or a layer. Pass `appearance` ("dark" or "tinted") to write an override for that appearance only. ' +
+        'Sets attributes on the document, a group or a layer. Pass `appearance` ("dark", or "tinted" = Mono in Icon Composer) and/or `platform` ("iOS", "macOS", "watchOS", "square" = iOS+macOS) to write a variant for only that case. ' +
         'Set a value to null to remove it (or to remove the override when `appearance` is given). See fresnel://schema/icon-json for keys and formats.',
       inputSchema: {
         path: z.string(),
         target: z.string().describe('"document", "<Group>" or "<Group>/<Layer>" (names or #index)'),
         props: z.record(z.string(), z.any()).describe('kebab-case keys, e.g. {"translucency": {"enabled": true, "value": 0.6}, "specular": true}'),
         appearance: overrideEnum.optional(),
+        platform: z.enum(['iOS', 'macOS', 'watchOS', 'square']).optional(),
       },
     },
-    safe(async ({ path, target, props, appearance }) => {
+    safe(async ({ path, target, props, appearance, platform }) => {
       const full = await ws.iconPath(path, { mustExist: true });
       const res = await ws.edit(full, (doc) => {
         const ref = resolvePath(doc, target);
-        for (const [k, v] of Object.entries(props)) setProp(doc, ref, k, v, appearance);
+        const variant = appearance || platform ? { ...(appearance ? { appearance } : {}), ...(platform ? { idiom: platform } : {}) } : undefined;
+        for (const [k, v] of Object.entries(props)) setProp(doc, ref, k, v, variant);
         return { target: targetLabel(doc, ref), now: describeProps(nodeOf(doc, ref).props) };
       });
       return ok(text(res));
@@ -341,7 +343,8 @@ export function createServer(ws: Workspace): McpServer {
       description: 'Renders an approximate preview PNG of one appearance and returns it as an image. Optionally saves it with `out`.',
       inputSchema: {
         path: z.string(),
-        appearance: appearanceEnum.optional().describe('Default: "default"'),
+        appearance: appearanceEnum.optional().describe('Default: "default". Mono in Icon Composer = clear-light / clear-dark / tinted-light / tinted-dark'),
+        platform: z.enum(['iOS', 'macOS', 'watchOS']).optional().describe('Default: iOS. watchOS renders a circle'),
         size: z.number().int().min(16).max(2048).optional().describe('Pixels, default 512'),
         mask: maskEnum.optional(),
         tint: z.string().optional().describe('Tint color for tinted appearances, "#RRGGBB"'),
@@ -350,13 +353,14 @@ export function createServer(ws: Workspace): McpServer {
       },
       annotations: { readOnlyHint: true },
     },
-    safe(async ({ path, appearance, size, mask, tint, light_angle, out }) => {
+    safe(async ({ path, appearance, platform, size, mask, tint, light_angle, out }) => {
       const full = await ws.iconPath(path, { mustExist: true });
       const doc = await ws.read(full);
       const png = await renderPng(doc, {
         appearance: appearance ?? 'default',
+        idiom: platform ?? 'iOS',
+        mask: mask ?? (platform === 'watchOS' ? 'circle' : 'squircle'),
         size: size ?? 512,
-        ...(mask ? { mask } : {}),
         ...(tint ? { tint } : {}),
         ...(light_angle !== undefined ? { lightAngle: light_angle } : {}),
       });

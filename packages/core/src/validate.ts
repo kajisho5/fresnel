@@ -24,7 +24,7 @@ export const RULES: Record<string, { severity: Severity; title: string }> = {
   'V-06': { severity: 'info', title: 'Very thin strokes may disappear at small sizes' },
   'V-07': { severity: 'info', title: 'SVG contains text or custom effects' },
   'V-08': { severity: 'warning', title: 'Appearance is not customized' },
-  'V-09': { severity: 'warning', title: 'More than 4 groups' },
+  'V-09': { severity: 'error', title: 'More than 4 groups' },
   'V-10': { severity: 'error', title: 'Unsupported image format' },
 };
 
@@ -50,7 +50,8 @@ export function validate(doc: IconDocument): Issue[] {
   const fill = resolveProp<unknown>(doc.props.fill, { appearance: 'default' }, 'automatic');
   if (fill === 'none') push('V-05', 'The background fill is "none". Icons need an opaque, full-bleed background.', 'document', { kind: 'document' });
 
-  if (doc.groups.length > 4) push('V-09', `This icon has ${doc.groups.length} groups. Apple recommends a minimal number of shapes; Icon Composer works with up to 4 groups.`, 'document');
+  const visibleGroups = doc.groups.filter((g) => resolveProp<boolean>(g.props.hidden, { appearance: 'default' }, false) !== true).length;
+  if (visibleGroups > 4) push('V-09', `This icon has ${visibleGroups} visible groups. Icon Composer supports up to 4, and actool rejects icons with more.`, 'document');
 
   let anyDark = false;
   let anyTinted = false;

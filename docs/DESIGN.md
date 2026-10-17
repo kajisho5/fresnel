@@ -465,15 +465,17 @@ AI エージェント（Claude Desktop / Claude Code など）から、`.icon` �
 
 ---
 
-## 17. 実装状況（v0.1 時点）
+## 17. 実装状況（v0.2 時点）
 
 | 範囲 | 状態 |
 |---|---|
-| `@fresnel/core` | 実装済み。実際の Icon Composer 出力 3 ファイルでバイト単位の往復を確認 |
-| `@fresnel/render` | 実装済み（SVG 合成方式）。ブラウザと resvg の結果が一致 |
-| `fresnel-mcp` | 実装済み。ツール 11 個、リソース 2 個、プロンプト 1 個。stdio 経由の E2E テストあり |
+| `@fresnel/core` | 実装済み。実際の Icon Composer 出力 3 ファイルでバイト単位の往復を確認。外観＋プラットフォームのバリアント、`refractivity`・`specular`（inside / outside）、`features` の自動同期に対応 |
+| `@fresnel/render` | 実装済み（SVG 合成方式）。屈折の近似、外側スペキュラ、Effects のオフ表示に対応 |
+| `fresnel-mcp` | 実装済み。`icon_set` と `icon_render` に `platform` 引数あり |
 | `fresnel-icon`（CLI） | 実装済み |
-| Web アプリ | 実装済み（Playwright E2E 8 本） |
+| Web アプリ | Icon Composer に準じた UI（A4 を参照）。IndexedDB への自動保存と、再読み込み時の復元に対応。Playwright E2E 12 本 |
+| 書き出し | iOS の appiconset の 1024 は、全面不透明かつアルファなしの RGB PNG。Tinted はグレースケール |
+| ブランド | `brand/`（ロゴ・ファビコン・OGP・GitHub social preview）。`pnpm brand` で生成する |
 | デスクトップ（Tauri v2） | 実装済み。Linux の .deb ビルドと起動を確認済み。macOS と Windows は CI（release.yml）でビルドする |
 | Assets.car | macOS ＋ Xcode 26 以降で actool を呼ぶ。CI の macOS ジョブで検証する（ローカルでは未検証） |
-| 未対応 | WebGL2 の屈折パス（v0.3）、visionOS / tvOS、自動保存（IndexedDB） |
+| 未対応 | WebGL2 の屈折パス、visionOS / tvOS |

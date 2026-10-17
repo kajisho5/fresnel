@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { findGroup, findLayer } from '@fresnel/core';
 import { X } from 'lucide-react';
 import { useDoc, undo, redo } from './store/doc';
 import { useUI } from './store/ui';
@@ -25,7 +26,7 @@ function useShortcuts() {
       const target = e.target as HTMLElement;
       const typing = !!target.closest('input, textarea, select, [contenteditable]');
       const ui = useUI.getState();
-      if (e.altKey && !mod && /^Digit[1-3]$/.test(e.code)) {
+      if (e.altKey && !mod && !typing && /^Digit[1-3]$/.test(e.code)) {
         e.preventDefault();
         ui.set({ appearanceMode: (['default', 'dark', 'mono'] as const)[Number(e.code.slice(5)) - 1]! });
         return;
@@ -69,7 +70,7 @@ function useShortcuts() {
       } else if (k === 'i' && e.shiftKey) {
         e.preventDefault();
         importLayers();
-      } else if ((e.key === '1' || e.key === '2') && !e.shiftKey) {
+      } else if ((e.key === '1' || e.key === '2') && !e.shiftKey && !typing) {
         e.preventDefault();
         ui.set({ mode: e.key === '1' ? 'edit' : 'compare' });
       } else if (typing) {
@@ -106,6 +107,21 @@ function useShortcuts() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+}
+
+/** Drops a selection that no longer exists (after undo, delete, open, restore). */
+function useSelectionGuard() {
+  useEffect(
+    () =>
+      useDoc.subscribe((st) => {
+        const ui = useUI.getState();
+        const s = ui.selection;
+        if (s.kind === 'document') return;
+        const ok = s.kind === 'group' ? !!findGroup(st.doc, s.id) : !!findLayer(st.doc, s.id);
+        if (!ok) ui.select({ kind: 'document' });
+      }),
+    [],
+  );
 }
 
 /** Reloads the document when its bundle changes on disk (e.g. edited through MCP). */
@@ -153,6 +169,7 @@ export function App({ platform }: { platform?: Platform }) {
   if (platform && getPlatform() !== platform) setPlatform(platform);
   useLang();
   useShortcuts();
+  useSelectionGuard();
   useWatch();
   const { mode, sidebarOpen, inspectorOpen, exportOpen, set } = useUI();
   const [dragging, setDragging] = useState(false);

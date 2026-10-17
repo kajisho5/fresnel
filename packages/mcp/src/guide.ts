@@ -10,7 +10,8 @@ https://developer.apple.com/design/human-interface-guidelines/app-icons
 - An icon is a background plus one or more foreground layers. The system adds Liquid Glass effects (specular highlights, refraction, translucency) and adapts them to size and system version.
 - Canvas: 1024×1024 for iOS/iPadOS/macOS (masked to a rounded rectangle) and 1088×1088 for watchOS (masked to a circle).
 - Appearances: Default, Dark, Clear light, Clear dark, Tinted light, Tinted dark. If you don't provide a variant, the system generates one.
-- Groups: effects such as specular, translucency, blur and shadow are configured per group. Keep the number of groups small (Icon Composer works with up to 4).
+- Groups: Liquid Glass effects (mode, specular Off/Automatic/Inside/Outside, blur, refraction, translucency, shadow) are configured per group. Use at most 4 groups — actool rejects icons with more.
+- In Icon Composer the appearances are Default, Dark and Mono (Mono covers clear and tinted); icon.json stores Mono overrides under the "tinted" key.
 
 ## Layers
 - Provide square, unmasked layers. Never bake in rounded corners; the system masks the icon, and pre-masked layers break the specular highlights and leave jagged edges.
@@ -36,7 +37,7 @@ https://developer.apple.com/design/human-interface-guidelines/app-icons
 2. Draw each foreground element as its own 1024×1024 SVG (transparent background, centered artwork) and add it with icon_add_layer.
 3. Use groups for depth: put elements that should share glass settings in one group. Index 0 is the frontmost.
 4. Set glass on layers that should catch highlights, then tune the group: translucency, blur-material, specular, shadow.
-5. Add dark and tinted overrides with icon_set (appearance: "dark" or "tinted").
+5. Add Dark and Mono ("tinted") overrides with icon_set (appearance: "dark" or "tinted"), and platform variants (platform: "watchOS", …) where layout differs.
 6. Check icon_render_sheet and icon_validate, then icon_export.
 `;
 

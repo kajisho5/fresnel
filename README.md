@@ -1,6 +1,11 @@
 <p align="center"><img src="design/app-icon.svg" width="128" alt="fresnel app icon"></p>
 
-<h1 align="center">fresnel</h1>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/logo/fresnel-wordmark-white.svg">
+    <img src="brand/logo/fresnel-wordmark-black.svg" height="48" alt="fresnel">
+  </picture>
+</p>
 <p align="center"><b>Open-source Liquid Glass icon composer.</b><br>
 Build layered app icons for iOS, iPadOS, macOS and watchOS — on macOS, Windows, Linux, in the browser, from the command line, or by asking your AI agent.</p>
 
@@ -20,7 +25,8 @@ Apple's Icon Composer only runs on macOS, and the `.icon` format it writes has n
 
 - **Reads and writes real `.icon` bundles.** Round trips are byte-for-byte on files produced by Icon Composer, and unknown keys are kept.
 - **Live preview of all six appearances**: Default, Dark, Clear light, Clear dark, Tinted light and Tinted dark, with a draggable light source and squircle or circle masks.
-- **Per-appearance overrides.** Edit "All" or only the "Current" appearance, exactly like `*-specializations` in `icon.json`.
+- **Feels like Icon Composer.** Default / Dark / Mono, "Vary for…" per appearance or platform, the Color, Liquid Glass and Composition sections, and the same shortcuts.
+- **Autosave.** Your work is kept in the browser and offered back after a reload or crash.
 - **Exports** `.icon`, `.icns`, `AppIcon.appiconset` (with Dark and Tinted variants) and PNG sets. On macOS with Xcode 26 or later it also compiles `Assets.car` through Apple's `actool`.
 - **Checks your icon** against Apple's HIG: square unmasked layers, no baked corners, an opaque background, outlined text, thin strokes, missing variants, and more.
 
@@ -100,6 +106,10 @@ Docs: [design spec](docs/DESIGN.md) (Japanese) · [fresnel HIG](docs/HIG.md), th
 ## How the `.icon` format is handled
 
 Apple doesn't publish the `icon.json` schema. fresnel's model is based on community reverse-engineering — [glassmith](https://github.com/digitalby/glassmith), [rozd/icon-kit](https://github.com/rozd/icon-kit), [icon-composer-template](https://github.com/peterpoliwoda/icon-composer-template) and [decant](https://github.com/kylebshr/decant) — and on files written by Icon Composer itself. Every attribute keeps its original form, plain or `*-specializations`, and unknown keys pass through untouched. The format may change whenever Xcode updates.
+
+## Brand
+
+The logo, favicons and social images are in [`brand/`](brand/README.md), and `pnpm brand` regenerates them. To set the repository's social preview, upload `brand/social/github-social-preview.png` in Settings → General → Social preview.
 
 ## Disclaimer
 
