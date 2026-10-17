@@ -45,7 +45,12 @@ type DirHandle = FileSystemDirectoryHandle & {
 
 /** A name usable as a file or folder name on every OS (no separators, reserved characters or leading dots). */
 export function safeFileName(name: string): string {
-  return name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').replace(/^[.\s]+|[.\s]+$/g, '') || 'Untitled';
+  const s = name
+    .replace(/[\\/:*?"<>|\u0000-\u001f\u202a-\u202e\u2066-\u2069]/g, '-') // separators, reserved, control and bidi characters
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .slice(0, 120);
+  // Windows reserved device names
+  return !s ? 'Untitled' : /^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(s) ? `_${s}` : s;
 }
 
 const handles = new Map<string, DirHandle>();

@@ -59,7 +59,7 @@ Apple's Icon Composer makes layered Liquid Glass icons, but it only runs on a Ma
 
 | | |
 |---|---|
-| **Layers and groups** | Drop SVG, PNG or JPEG files to add them as layers. Drop a folder to add it as a group. Drag to reorder and double-click to rename. Duplicate, group, hide or delete from the context menu. Up to 4 groups, as in Icon Composer. |
+| **Layers and groups** | Drop SVG, PNG or JPEG files to add them as layers. Drop a folder to add it as a group. Drag to reorder and double-click to rename. Duplicate, group, hide or delete from the context menu. New layers get Liquid Glass automatically, as in Icon Composer. Apple recommends at most 4 groups, and fresnel warns past that. |
 | **Liquid Glass** | Per group: mode (Individual / Combined), specular highlights (Off / Automatic / Inside / Outside), blur, translucency, shadow (Neutral / Chromatic), and refraction set on a 2D strength × depth pad. Per layer: glass, fill, blend mode and opacity. |
 | **Appearances** | Default, Dark and Mono. Mono can be clear or tinted, light or dark, with a tint color you choose. Compare shows all six system appearances side by side. |
 | **Variants** | Override any value for Dark, Mono, iOS, macOS or watchOS. Use "Vary for…" on a single setting, or a section's "Applies to" popup for a whole section. Overrides are listed under the base value, and you remove each with one click. |
@@ -105,7 +105,7 @@ The [user guide](docs/USER_GUIDE.md) explains every control. Here's the short ve
 2. **Add artwork.** Drop your layer files on the window, or click **＋ → New Image…** in the sidebar. Make each layer a 1024×1024 square with a transparent background and no rounded corners, because the system masks the icon for you. SVG works best.
 3. **Arrange.** The sidebar lists the frontmost item first. Drag to reorder, or press ⌘] and ⌘[. Put layers that should share glass settings in one group (⌘G).
 4. **Style.** Select a group to set **Liquid Glass**: translucency, blur, specular and shadow. Select a layer to set **Color** (fill, blend mode, opacity) and **Composition** (position and scale).
-5. **Check every appearance.** Switch between **Default / Dark / Mono** at the bottom right (⌥1 – ⌥3) and **iOS / macOS / watchOS** at the bottom left. To change a value for the current appearance only, set the section's popup from **All** to **Dark**, or click **＋ → Vary for…** next to a setting.
+5. **Check every appearance.** Switch between **Default / Dark / Mono** at the bottom right (⌥1 – ⌥3) and the platform (**iOS, macOS** or **watchOS**) at the bottom left. To change a value for the current appearance only, set the section's popup from **All** to **Dark**, or click **＋ → Vary for…** next to a setting.
 6. **Compare.** Press ⌘2 to see all six appearances at every size. The small sizes show what still reads at 16–64 px.
 7. **Export.** Press ⇧⌘E. Choose `.icon` for Xcode 26, `AppIcon.appiconset` for older Xcode projects, `.icns` for macOS, or PNG sets.
 
@@ -138,8 +138,8 @@ In number fields, ↑ and ↓ change the value by one step (⇧ ×10, ⌥ ×0.1)
 | Format | Use it for | Details |
 |---|---|---|
 | `.icon` | Xcode 26 and later | The layered source file. Add it to your target and set it as the app icon. |
-| `AppIcon.appiconset` | Asset catalogs (any Xcode) | 1024 px iOS icon, full-bleed and opaque with no alpha (as the App Store requires), plus Dark and Tinted variants and the classic macOS sizes. |
-| `.icns` | macOS apps, installers, Finder | 16–1024 px, including @2x. |
+| `AppIcon.appiconset` | Asset catalogs (any Xcode) | 1024 px iOS icon, full-bleed and opaque with no alpha (as the App Store requires); a Dark variant with a transparent background and a grayscale Tinted variant, as Apple asks; the classic macOS sizes in Apple's macOS template (inset body with a shadow); and a watchOS slot when the icon targets watchOS. |
+| `.icns` | macOS apps, installers, Finder | 16–1024 px with @2x, in the classic macOS template, using your macOS variants. |
 | PNG set | Websites, stores, docs | Every appearance at 1024, 512, 256, 128, 64, 32 and 16 px, masked. |
 | `Assets.car` | Compiled asset catalogs | Desktop app on macOS with Xcode 26 or later only (uses Apple's `actool`). |
 
@@ -159,7 +159,7 @@ fresnel checks your icon as you edit. Problems appear in the status bar and in t
 | V-06 | Info | Very thin strokes may disappear at small sizes |
 | V-07 | Info | An SVG contains text or custom effects |
 | V-08 | Warning | Dark or Tinted isn't customized (the system will generate it) |
-| V-09 | Error | More than 4 visible groups (Xcode's `actool` rejects them) |
+| V-09 | Warning | More than 4 visible groups (Apple recommends at most 4; some versions of Xcode's `actool` reject more) |
 | V-10 | Error | Unsupported image format |
 
 The rules come from Apple's [Human Interface Guidelines for app icons](https://developer.apple.com/design/human-interface-guidelines/app-icons). [docs/HIG.md](docs/HIG.md) (Japanese) explains each one.
@@ -266,7 +266,7 @@ Yes. fresnel is MIT-licensed, and the icons you make are yours.
 | Can't open an `.icon` in Safari or Firefox | These browsers can't open folders. Zip the `.icon` folder and open the zip, or use Chrome, Edge or the desktop app. |
 | A layer has jagged or doubled corners | The artwork has rounded corners baked in (check V-04). Export it as a full square and let the system mask it. |
 | Layers look smaller than expected | Layers are placed at their natural size on the 1024 pt canvas. Make the artboard 1024×1024, or scale the layer in **Composition**. |
-| "An icon can have up to 4 groups" | Combine layers that share glass settings into one group. |
+| V-09 "More than 4 groups" | Combine layers that share glass settings into one group. |
 | Dark looks muddy | Give Dark its own background (**Color → Applies to → Dark**) and lighten the foreground colors slightly. |
 | An `.icns` or PNG export is blank in Safari | Export again, or use Chrome or the desktop app, and [report it](https://github.com/kajisho5/fresnel/issues) with your browser version. |
 | The desktop app won't open on macOS | The app isn't signed yet. Try to open it once, then go to System Settings → Privacy & Security and click **Open Anyway**. |

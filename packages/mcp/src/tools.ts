@@ -9,6 +9,8 @@ import {
   buildAppIconSet,
   buildIcns,
   buildPngSet,
+  targetsWatch,
+  unrenderableLayers,
   createDocument,
   findGroup,
   makeAsset,
@@ -33,7 +35,7 @@ import { nodeRasterizer, renderPng, renderSheetPng } from '@fresnel/render/node'
 import { ICON_GUIDE, SCHEMA_GUIDE } from './guide';
 import type { Workspace } from './workspace';
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 
 const appearanceEnum = z.enum(APPEARANCES as [Appearance, ...Appearance[]]);
 const overrideEnum = z.enum(['dark', 'tinted']);
@@ -415,10 +417,14 @@ export function createServer(ws: Workspace): McpServer {
       const doc = await ws.read(full);
       const name = basename(full).replace(/\.icon(\.zip)?$/, '');
       const raster = nodeRasterizer(doc);
+      const missing = unrenderableLayers(doc);
+      if (missing.length && formats.some((f) => f !== 'icon'))
+        throw new Error(`These visible layers can't be rendered and would be missing from the images: ${missing.join(', ')}. Fix them first (icon_validate).`);
       const written: string[] = [];
       if (formats.includes('icon')) {
-        const files = writeBundle(doc, doc.extra);
-        written.push(...(await writeFiles(join(outDir, `${name}.icon`), files)));
+        const dest = join(outDir, `${name}.icon`);
+        await saveIcon(dest, doc);
+        written.push(join(dest, 'icon.json'), ...Object.keys(doc.assets).map((a) => join(dest, 'Assets', a)));
       }
       if (formats.includes('icns')) {
         const p = join(outDir, `${name}.icns`);
@@ -426,7 +432,7 @@ export function createServer(ws: Workspace): McpServer {
         await writeFile(p, await buildIcns(raster));
         written.push(p);
       }
-      if (formats.includes('appiconset')) written.push(...(await writeFiles(join(outDir, 'AppIcon.appiconset'), await buildAppIconSet(raster))));
+      if (formats.includes('appiconset')) written.push(...(await writeFiles(join(outDir, 'AppIcon.appiconset'), await buildAppIconSet(raster, { watch: targetsWatch(doc) }))));
       if (formats.includes('png'))
         written.push(
           ...(await writeFiles(

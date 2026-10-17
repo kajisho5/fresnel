@@ -68,18 +68,21 @@ export async function saveIcon(path: string, doc: LoadedIcon | IconDocument): Pr
   const keep = new Set(Object.keys(doc.assets));
   await assertNoSymlink(root, assetsDir);
   for (const e of await readdir(assetsDir, { withFileTypes: true })) {
-    // Dirent.isFile() is false for symlinks, so links are never removed through
-    if (e.isFile() && !keep.has(e.name) && e.name !== '.DS_Store') await rm(join(assetsDir, e.name));
+    // Dirent.isFile() is false for symlinks, so links are never removed through; hidden files are left alone
+    if (e.isFile() && !keep.has(e.name) && !e.name.startsWith('.')) await rm(join(assetsDir, e.name));
   }
 }
 
 export async function writeFiles(dir: string, files: Record<string, Uint8Array>): Promise<string[]> {
   const written: string[] = [];
+  const root = resolve(dir);
   for (const [rel, bytes] of Object.entries(files)) {
-    const target = resolve(dir, ...rel.split('/'));
-    const r = relative(resolve(dir), target);
+    const target = resolve(root, ...rel.split('/'));
+    const r = relative(root, target);
     if (r.startsWith('..') || isAbsolute(r)) throw new Error(`Refusing to write outside ${dir}: ${rel}`);
+    await assertNoSymlink(root, target);
     await mkdir(dirname(target), { recursive: true });
+    await assertNoSymlink(root, target);
     await writeFile(target, bytes);
     written.push(target);
   }

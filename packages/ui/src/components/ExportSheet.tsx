@@ -5,6 +5,8 @@ import {
   buildAppIconSet,
   buildIcns,
   buildPngSet,
+  targetsWatch,
+  unrenderableLayers,
   summarizeIssues,
   writeBundle,
   type Appearance,
@@ -93,18 +95,22 @@ export function ExportSheet() {
   const passed = 10 - new Set(problems.map((i) => i.id)).size;
   const layerCount = doc.groups.reduce((a, g) => a + g.layers.length, 0);
   const any = Object.entries(formats).some(([k, v]) => v && k !== 'car');
+  // raster formats would silently drop layers the renderer can't draw
+  const missing = unrenderableLayers(doc);
+  const rasterBlocked = missing.length > 0 && (formats.icns || formats.appiconset || formats.png);
 
   const run = async () => {
     setBusy(true);
     try {
-      const raster = browserRasterizer(doc, { tint: ropts.tint!, effects: ropts.effects !== false });
+      // exports always use the full Liquid Glass look, whatever the preview's Effects switch says
+      const raster = browserRasterizer(doc, { tint: ropts.tint!, effects: true });
       const files: FileMap = {};
       const name = safeFileName(docName);
       const put = (prefix: string, m: FileMap) => Object.entries(m).forEach(([k, v]) => (files[`${prefix}${k}`] = v));
       const wantCar = formats.car && actool && !!plat.compileCar;
       if (formats.icon || wantCar) put(`${name}.icon/`, writeBundle(doc, extra));
       if (formats.icns) files[`${name}.icns`] = await buildIcns(raster);
-      if (formats.appiconset) put('AppIcon.appiconset/', await buildAppIconSet(raster));
+      if (formats.appiconset) put('AppIcon.appiconset/', await buildAppIconSet(raster, { watch: targetsWatch(doc) }));
       if (formats.png) put(`${name}-png/`, await buildPngSet(raster, pngScope === 'all' ? [...APPEARANCES] : (['default'] as Appearance[]), PNG_SIZES));
       const where = await plat.writeExport(files, name);
       if (where && wantCar) await plat.compileCar!(`${where}/${name}.icon`, where);
@@ -119,7 +125,7 @@ export function ExportSheet() {
     }
   };
   runRef.current = () => {
-    if (!busy && any) void run();
+    if (!busy && any && !rasterBlocked) void run();
   };
 
 
@@ -202,6 +208,7 @@ export function ExportSheet() {
               </div>
             ))}
             {sum.errors > 0 && <p className="mt-2 text-err">{t('fixErrorsFirst')}</p>}
+            {rasterBlocked && <p className="mt-2 text-err">{t('unrenderableLayers', { list: missing.join(', ') })}</p>}
           </div>
 
           <h3 className="mt-5 mb-2 text-[11px] font-semibold tracking-[0.6px] text-t3">{t('saveTo')}</h3>
@@ -209,7 +216,7 @@ export function ExportSheet() {
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-sep px-7 py-3">
           <Button onClick={() => set({ exportOpen: false })}>{t('cancel')}</Button>
-          <Button variant="primary" onClick={run} disabled={busy || !any}>
+          <Button variant="primary" onClick={run} disabled={busy || !any || rasterBlocked}>
             {busy ? t('exporting') : t('exportBtn')}
           </Button>
         </div>

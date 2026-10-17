@@ -198,8 +198,10 @@ describe('icns', () => {
     const dv = new DataView(icns.buffer);
     expect(String.fromCharCode(...icns.subarray(0, 4))).toBe('icns');
     expect(dv.getUint32(4)).toBe(icns.length);
-    expect(String.fromCharCode(...icns.subarray(8, 12))).toBe('ic11');
-    expect(icns.length).toBe(8 + 18 + 28);
+    // 32 px is stored twice: icp5 (32@1x) and ic11 (16@2x)
+    expect(String.fromCharCode(...icns.subarray(8, 12))).toBe('icp5');
+    expect(String.fromCharCode(...icns.subarray(26, 30))).toBe('ic11');
+    expect(icns.length).toBe(8 + 18 + 18 + 28);
   });
 });
 

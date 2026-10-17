@@ -1,3 +1,4 @@
+import { parseColor } from './color';
 import { assetText, decodePng, svgFacts } from './image';
 import type { IconDocument, NodeRef } from './model';
 import { baseValue, overriddenAppearances, resolveProp } from './prop';
@@ -30,6 +31,18 @@ export const RULES: Record<string, { severity: Severity; title: string }> = {
   'V-10': { severity: 'error', title: 'Unsupported image format' },
 };
 
+function fillHasAlpha(fill: unknown): boolean {
+  if (!fill || typeof fill !== 'object') return false;
+  const f = fill as Record<string, unknown>;
+  const colors = [f.solid, f['automatic-gradient'], ...(Array.isArray(f['linear-gradient']) ? f['linear-gradient'] : [])];
+  return colors.some((c) => {
+    const p = typeof c === 'string' ? parseColor(c) : null;
+    if (!p) return false;
+    const a = p.space === 'gray' || p.space === 'extended-gray' ? p.c[1] : p.c[3];
+    return a !== undefined && a < 1;
+  });
+}
+
 export function validate(doc: IconDocument): Issue[] {
   const out: Issue[] = [];
   const push = (id: string, message: string, target: string, ref?: NodeRef) =>
@@ -51,6 +64,7 @@ export function validate(doc: IconDocument): Issue[] {
 
   const fill = resolveProp<unknown>(doc.props.fill, { appearance: 'default' }, 'automatic');
   if (fill === 'none') push('V-05', 'The background fill is "none". Icons need an opaque, full-bleed background.', 'document', { kind: 'document' });
+  else if (fillHasAlpha(fill)) push('V-05', 'The background color is partly transparent. App Store icons are flattened onto black.', 'document', { kind: 'document' });
 
   const visibleGroups = doc.groups.filter((g) => resolveProp<boolean>(g.props.hidden, { appearance: 'default' }, false) !== true).length;
   if (visibleGroups > 4) push('V-09', `This icon has ${visibleGroups} visible groups. Apple recommends at most 4, and Xcode's actool may reject icons with more.`, 'document');

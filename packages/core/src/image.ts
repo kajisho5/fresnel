@@ -70,8 +70,38 @@ export function jpgSize(b: Uint8Array): { width: number; height: number } {
 /** Elements removed together with their content. */
 const DROP_ELEMENTS = new Set([
   'script', 'foreignobject', 'iframe', 'embed', 'object', 'audio', 'video', 'canvas',
-  'set', 'animate', 'animatemotion', 'animatetransform', 'animatecolor', 'discard', 'handler', 'listener', 'a',
+  'set', 'animate', 'animatemotion', 'animatetransform', 'animatecolor', 'discard', 'handler', 'listener',
 ]);
+/** Elements whose tag is removed but whose content is kept. */
+const UNWRAP_ELEMENTS = new Set(['a']);
+
+/** Decodes XML character references and CSS escapes, so url( / javascript: checks can't be dodged. */
+function decodeForCheck(v: string): string {
+  return v
+    .replace(/&#x([0-9a-f]+);?/gi, (_m, h: string) => String.fromCodePoint(parseInt(h, 16) % 0x110000))
+    .replace(/&#(\d+);?/g, (_m, d: string) => String.fromCodePoint(Number(d) % 0x110000))
+    .replace(/\\([0-9a-f]{1,6})\s?/gi, (_m, h: string) => String.fromCodePoint(parseInt(h, 16) % 0x110000))
+    .replace(/\\(.)/g, '$1')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+}
+
+/**
+ * Expands internal general entities (Illustrator exports use &ns_svg; etc.) so dropping the
+ * DOCTYPE doesn't leave undefined references. Values are capped to stop entity bombs.
+ */
+function expandInternalEntities(svg: string): string {
+  const doctype = /<!DOCTYPE[^\[>]*\[([\s\S]*?)\]\s*>/i.exec(svg);
+  if (!doctype) return svg;
+  const ents = new Map<string, string>();
+  for (const m of doctype[1]!.matchAll(/<!ENTITY\s+([\w.-]+)\s+(?:"([^"]*)"|'([^']*)')\s*>/g)) {
+    const v = m[2] ?? m[3] ?? '';
+    // no nested references or markup: only plain literal values (namespace URIs, ids, colors)
+    if (v.length <= 2048 && !/[&<]/.test(v)) ents.set(m[1]!, v);
+  }
+  const body = svg.slice(0, doctype.index) + svg.slice(doctype.index + doctype[0].length);
+  return body.replace(/&([\w.-]+);/g, (m, name: string) => ents.get(name) ?? m);
+}
 
 function safeUrlRef(v: string): boolean {
   const t = v.trim().replace(/^['"]|['"]$/g, '').trim();
@@ -79,7 +109,9 @@ function safeUrlRef(v: string): boolean {
 }
 
 /** Removes url(...) references to anything but local fragments / inline images, and @import. */
-function cleanCss(css: string): string {
+function cleanCss(css0: string): string {
+  // CSS escapes (u\72l, url\28) are decoded first so they can't hide a url()
+  const css = css0.replace(/\\([0-9a-f]{1,6})\s?/gi, (_m, h: string) => String.fromCodePoint(parseInt(h, 16) % 0x110000)).replace(/\\(.)/g, '$1');
   return css
     .replace(/@import\b[^;]*;?/gi, '')
     .replace(/url\s*\(([^)]*)\)/gi, (m, inner: string) => (safeUrlRef(inner) ? m : 'none'))
@@ -102,9 +134,14 @@ function cleanAttrs(raw: string): string {
     if (lname === 'href' || lname.endsWith(':href') || lname === 'src') {
       if (!safeUrlRef(value)) continue;
     }
-    if (/javascript\s*:|vbscript\s*:/i.test(value)) continue;
+    const plain = decodeForCheck(value);
+    if (/javascript:|vbscript:/.test(plain) || lname === 'xml:base') continue;
     let v = value;
-    if (lname === 'style' || /url\s*\(/i.test(v)) v = cleanCss(v);
+    if (lname === 'style' || /url\(/.test(plain)) {
+      v = cleanCss(v);
+      // anything still pointing at a non-local url after decoding escapes is dropped
+      if (/url\((?!['"]?#)/.test(decodeForCheck(v).replace(/url\(['"]?data:image\/(png|jpe?g|gif|webp);base64,/g, 'url(#'))) continue;
+    }
     out.push(`${name}="${v.replace(/"/g, '&quot;')}"`);
   }
   return out.length ? ' ' + out.join(' ') : '';
@@ -178,6 +215,7 @@ function sanitizeOnce(svg: string): string {
     i = j + 1;
     const [, close, tag, attrs, selfClose] = m as unknown as [string, string, string, string, string];
     const local = tag.toLowerCase().replace(/^.*:/, '');
+    if (UNWRAP_ELEMENTS.has(local) && !skip.length) continue;
     if (close) {
       if (skip.length) {
         if (skip[skip.length - 1] === local) skip.pop();
@@ -210,7 +248,7 @@ function sanitizeOnce(svg: string): string {
  * Defense in depth: fresnel itself only renders SVG through <img> / resvg.
  */
 export function sanitizeSvg(svg: string): string {
-  let s = svg;
+  let s = expandInternalEntities(svg);
   for (let n = 0; n < 5; n++) {
     const next = sanitizeOnce(s);
     if (next === s) break;
@@ -238,8 +276,10 @@ export function svgFacts(svg: string): SvgFacts {
 export function makeAsset(name: string, bytes: Uint8Array): Asset {
   const kind = sniffKind(name, bytes);
   if (kind === 'svg') {
-    const text = sanitizeSvg(td.decode(bytes));
-    return { name, kind, bytes: te.encode(text), ...svgSize(text) };
+    // keep the user's file untouched; previews and raster exports use the sanitized copy
+    const original = td.decode(bytes);
+    const text = sanitizeSvg(original);
+    return { name, kind, bytes, ...(text !== original ? { display: te.encode(text) } : {}), ...svgSize(text) };
   }
   if (kind === 'png') return { name, kind, bytes, ...pngSize(bytes) };
   if (kind === 'jpg') return { name, kind, bytes, ...jpgSize(bytes) };
@@ -414,5 +454,30 @@ export function encodePngRgb(width: number, height: number, rgba: Uint8Array, bg
 /** Removes the alpha channel from a PNG (App Store icons must be opaque, without alpha). */
 export function flattenPng(png: Uint8Array, bg: [number, number, number] = [0, 0, 0]): Uint8Array {
   const bmp = decodePng(png);
-  return bmp ? encodePngRgb(bmp.width, bmp.height, bmp.data, bg) : png;
+  // never hand back a PNG that may still have alpha: the App Store rejects it
+  if (!bmp) throw new Error('Could not flatten the PNG (unsupported encoding)');
+  return tagSrgb(encodePngRgb(bmp.width, bmp.height, bmp.data, bg));
+}
+
+/** Adds an sRGB chunk (rendering intent: perceptual) right after IHDR, unless the PNG already declares a color space. */
+export function tagSrgb(png: Uint8Array): Uint8Array {
+  const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (png.length < 33 || sig.some((b, i) => png[i] !== b)) return png;
+  // scan chunk types for sRGB / iCCP before IDAT
+  let o = 8;
+  const dv = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  while (o + 8 <= png.length) {
+    const len = dv.getUint32(o);
+    const type = String.fromCharCode(png[o + 4]!, png[o + 5]!, png[o + 6]!, png[o + 7]!);
+    if (type === 'sRGB' || type === 'iCCP') return png;
+    if (type === 'IDAT') break;
+    o += 12 + len;
+  }
+  const ihdrEnd = 8 + 12 + 13;
+  const srgb = chunk('sRGB', new Uint8Array([0]));
+  const out = new Uint8Array(png.length + srgb.length);
+  out.set(png.subarray(0, ihdrEnd), 0);
+  out.set(srgb, ihdrEnd);
+  out.set(png.subarray(ihdrEnd), ihdrEnd + srgb.length);
+  return out;
 }

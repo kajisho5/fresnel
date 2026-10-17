@@ -31,7 +31,7 @@ An app icon made for Liquid Glass is a stack, not a flat picture.
 | Part | What it is |
 |---|---|
 | **Background** | The fill behind everything: a color, a gradient, or a system fill. |
-| **Group** | A set of layers that share Liquid Glass settings (translucency, blur, specular highlights, shadow, refraction). An icon can have up to 4 groups. Groups at the top of the list are in front. |
+| **Group** | A set of layers that share Liquid Glass settings (translucency, blur, specular highlights, shadow, refraction). Apple recommends at most 4 groups. Groups at the top of the list are in front. |
 | **Layer** | One image (SVG, PNG or JPEG) with its own fill, blend mode, opacity and position. |
 | **Appearance** | How the icon looks in the system's Default, Dark, Clear and Tinted modes. |
 | **Platform** | iOS / iPadOS and macOS use a rounded square. watchOS uses a circle. |
@@ -49,7 +49,7 @@ The system applies the glass effects and masks the shape when it shows your icon
 | **Sidebar** (left) | The document, then groups and layers, frontmost first. **＋** at the bottom adds images and groups. The count of groups and layers is shown next to it. |
 | **Canvas toolbar** (above the canvas) | Background color, wallpaper or image, grid, preview size, zoom, **Effects** and **Compare**. |
 | **Canvas** (center) | The live preview. Click to select, drag to move. |
-| **Canvas bar** (below the canvas) | Platform (iOS / macOS / watchOS) and appearance (Default / Dark / Mono), plus Mono **Options**. |
+| **Canvas bar** (below the canvas) | Platform (**iOS, macOS** when both share one icon, or each separately, plus watchOS) and appearance (Default / Dark / Mono), plus Mono **Options**. |
 | **Inspector** (right) | **Style**: settings for the selection. **Document**: platforms and color space. |
 | **Status bar** (bottom) | Canvas size, color space, platforms, the number of issues, and whether `actool` is available. |
 
@@ -188,7 +188,7 @@ Compare (⌘2, or **Compare** in the canvas toolbar) shows Default, Dark, Mono �
 
 ## 10. Checks
 
-The status bar shows the number of issues. Click it to see them. The export sheet lists them too. Errors block nothing in fresnel, but Xcode or the App Store may reject the icon.
+The status bar shows the number of issues. Click it to see them. The export sheet lists them too. Errors don't stop you from editing or saving, but Xcode or the App Store may reject the icon. Image exports are blocked while a visible layer can't be rendered, so nothing goes missing silently.
 
 | ID | Level | What to do |
 |---|---|---|
@@ -200,7 +200,7 @@ The status bar shows the number of issues. Click it to see them. The export shee
 | V-06 | Info | Very thin strokes. Make lines at least a few points wide so they survive at 16–32 px. |
 | V-07 | Info | The SVG has text or filters. Convert text to outlines and remove effects, since the system adds its own. |
 | V-08 | Warning | Dark or Tinted isn't customized. Fine if the generated version looks good in Compare. |
-| V-09 | Error | More than 4 visible groups. Merge groups. |
+| V-09 | Warning | More than 4 visible groups. Apple recommends at most 4, and some versions of `actool` reject more. Merge groups. |
 | V-10 | Error | Unsupported image format. Use SVG, PNG or JPEG. |
 
 ## 11. Opening, saving and autosave
@@ -239,8 +239,8 @@ Press ⇧⌘E or click **Export…**. Choose one or more formats:
 | Format | Contents | Use |
 |---|---|---|
 | **.icon bundle** | `Name.icon/` | Xcode 26 or later. Drag it into your project and choose it as the app icon. |
-| **macOS .icns** | `Name.icns` (16–1024 px, @1x and @2x) | Mac apps that don't use asset catalogs, installers, DMGs |
-| **AppIcon.appiconset** | `Contents.json` and PNGs | Any Xcode asset catalog. The iOS 1024 px image is opaque RGB with no alpha, as the App Store requires. Includes Dark and Tinted variants and the classic macOS sizes. |
+| **macOS .icns** | `Name.icns` (16–1024 px, @1x and @2x, classic macOS template with your macOS variants) | Mac apps that don't use asset catalogs, installers, DMGs |
+| **AppIcon.appiconset** | `Contents.json` and PNGs | Any Xcode asset catalog. The iOS 1024 px image is opaque RGB with no alpha, as the App Store requires. The Dark image has a transparent background and the Tinted image is grayscale, as Apple asks. The macOS sizes use the classic macOS template (inset body with a shadow) and your macOS variants. A watchOS image is added when the icon targets watchOS. |
 | **PNG set** | `Name-png/<appearance>/icon-<size>.png` | Websites, store pages, documentation. All appearances, or Default only. |
 | **Assets.car** | Compiled with Apple's `actool` | Desktop app on macOS with Xcode 26 or later only |
 
@@ -329,7 +329,7 @@ fresnel render App/AppIcon.icon --sheet -o icon-sheet.png
 | The layer is off-center | The artwork isn't centered on its artboard. Center it in your drawing app, or adjust X / Y. |
 | Corners look doubled or jagged | Rounded corners are baked into the artwork (V-04). |
 | Colors look different from my design app | Check **Document → SVG color space**. Icon Composer reads untagged SVG colors as Display P3. |
-| "An icon can have up to 4 groups." | That's Icon Composer's limit, and Xcode rejects more. Merge groups. |
+| V-09 "More than 4 groups" | Apple recommends at most 4, and some versions of Xcode's `actool` reject more. Merge groups. |
 | A change applies only in Dark (or doesn't apply in Dark) | Check the section's **Applies to** popup and the variant rows under the setting. |
 | The eye toggle doesn't seem to work | Visibility may have a variant for this appearance or platform. With **All** selected, look under **Composition → Visible**. |
 | The undo button is greyed out | Nothing to undo since the icon was opened. |

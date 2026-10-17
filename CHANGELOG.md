@@ -4,6 +4,30 @@ All notable changes to fresnel are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-17
+
+### Fixed
+- macOS release build: `Info.plist` was malformed.
+- SVG files are saved and exported exactly as imported. Only previews and image exports use the cleaned copy, so Illustrator SVGs with entities and SVGs with links no longer turn blank.
+- `.icns` and the macOS images in `AppIcon.appiconset` use macOS variants (they used iOS values).
+- The Dark image in `AppIcon.appiconset` has a transparent background, as Apple asks.
+- Exports always use the full Liquid Glass effects, whatever the preview's Effects switch says.
+- Image exports stop if a visible layer can't be rendered, instead of leaving it out silently (CLI: `--force` to override).
+- Hidden files (such as `.git`, `.env`) and unsafe paths in an opened bundle are no longer carried into saves and exports.
+- Exporting an `.icon` again removes images left over from the previous export.
+- More SVG sanitizer edge cases (CSS and entity escapes, `xml:base`).
+
+### Changed
+- New layers get Liquid Glass, as in Icon Composer.
+- `"appearance": "light"` variants apply to the Default appearance, as Icon Composer writes them.
+- With a shared iOS / macOS icon, the platform bar shows one "iOS, macOS" platform, and platform variants use the `square` idiom.
+- Layers can use Automatic Gradient fills.
+- More than 4 groups is a warning (V-09) instead of being refused, because Icon Composer can write such files.
+- Translucency fades toward the bottom of the shape; watchOS previews the 1088 pt canvas and ignores appearances.
+- macOS images in `.icns` and `AppIcon.appiconset` follow the classic macOS template (inset body with a shadow), and `.icns` includes 16 and 32 px.
+- `AppIcon.appiconset` includes a watchOS image when the icon targets watchOS.
+- Exported PNGs carry an sRGB chunk; a partly transparent background is flagged (V-05).
+
 ## [0.1.0] - 2026-10-17
 
 First public version. The web app is live at https://kajisho5.github.io/fresnel/.
@@ -37,5 +61,6 @@ First public version. The web app is live at https://kajisho5.github.io/fresnel/
 - Imported SVG is cleaned with a tokenizer and an allowlist (no scripts, event handlers, external references or animation).
 - The MCP server only reads and writes inside its `--root` folders.
 
-[Unreleased]: https://github.com/kajisho5/fresnel/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kajisho5/fresnel/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/kajisho5/fresnel/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/kajisho5/fresnel/releases/tag/v0.1.0

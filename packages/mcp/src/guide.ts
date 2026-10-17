@@ -10,7 +10,7 @@ https://developer.apple.com/design/human-interface-guidelines/app-icons
 - An icon is a background plus one or more foreground layers. The system adds Liquid Glass effects (specular highlights, refraction, translucency) and adapts them to size and system version.
 - Canvas: 1024×1024 for iOS/iPadOS/macOS (masked to a rounded rectangle) and 1088×1088 for watchOS (masked to a circle).
 - Appearances: Default, Dark, Clear light, Clear dark, Tinted light, Tinted dark. If you don't provide a variant, the system generates one.
-- Groups: Liquid Glass effects (mode, specular Off/Automatic/Inside/Outside, blur, refraction, translucency, shadow) are configured per group. Use at most 4 groups — actool rejects icons with more.
+- Groups: Liquid Glass effects (mode, specular Off/Automatic/Inside/Outside, blur, refraction, translucency, shadow) are configured per group. Use at most 4 groups (Apple's recommendation; some actool versions reject more).
 - In Icon Composer the appearances are Default, Dark and Mono (Mono covers clear and tinted); icon.json stores Mono overrides under the "tinted" key.
 
 ## Layers

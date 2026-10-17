@@ -58,7 +58,10 @@ export type PropMap = Record<string, Prop>;
 export interface Asset {
   name: string;
   kind: 'svg' | 'png' | 'jpg' | 'pdf' | 'other';
+  /** the file exactly as imported or read; this is what gets saved and exported in the bundle */
   bytes: Uint8Array;
+  /** SVG only: sanitized copy used for previews and raster exports (when it differs from bytes) */
+  display?: Uint8Array;
   width: number;
   height: number;
 }

@@ -47,6 +47,28 @@ export interface RenderOptions {
   idiom?: 'iOS' | 'macOS' | 'watchOS';
   /** false = no Liquid Glass effects (Icon Composer's "Effects" toggle). Default true */
   effects?: boolean;
+  /** false = leave out the background (transparent) */
+  background?: boolean;
+  /** transparent margin in points around the icon, with a drop shadow (classic macOS template) */
+  inset?: number;
+}
+
+/** Maps export raster options (@fresnel/core RasterOptions) onto render options. */
+export function rasterRenderOptions(ro?: {
+  mask?: MaskShape;
+  tint?: string;
+  idiom?: 'iOS' | 'macOS' | 'watchOS';
+  background?: boolean;
+  inset?: number;
+}): RenderOptions {
+  if (!ro) return {};
+  return {
+    ...(ro.mask ? { mask: ro.mask, rim: ro.mask !== 'none' } : {}),
+    ...(ro.tint ? { tint: ro.tint } : {}),
+    ...(ro.idiom ? { idiom: ro.idiom } : {}),
+    ...(ro.background === false ? { background: false } : {}),
+    ...(ro.inset ? { inset: ro.inset } : {}),
+  };
 }
 
 const C = CANVAS;
@@ -191,6 +213,10 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
     if (bgFill === undefined) bgFill = 'automatic';
     bgPaint = paintFor(bgFill, defs, full, dark);
   }
+  if (opts.background === false) {
+    bgPaint = null;
+    darken = 0;
+  }
 
   // ------------------------------------------------------------ groups (back to front)
   const groups = FRONT_FIRST ? [...doc.groups].reverse() : [...doc.groups];
@@ -247,7 +273,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
         imgId.set(p.asset.name, iid);
         // natural-size image symbol; placed via <use> with transform
         defs.add(
-          `<image id="${iid}" width="${n(p.asset.width)}" height="${n(p.asset.height)}" preserveAspectRatio="none" href="data:${mimeOf(p.asset)};base64,${b64(p.asset.bytes)}"/>`,
+          `<image id="${iid}" width="${n(p.asset.width)}" height="${n(p.asset.height)}" preserveAspectRatio="none" href="data:${mimeOf(p.asset)};base64,${b64(p.asset.display ?? p.asset.bytes)}"/>`,
         );
       }
       const s = p.w / p.asset.width;
@@ -409,7 +435,17 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   const clipId = defs.id('clip');
   const shape = maskPath(mask);
   defs.add(`<clipPath id="${clipId}"><path d="${shape}"/></clipPath>`);
-  body.push(`<g clip-path="url(#${clipId})">${top}</g>`);
+  const M = Math.max(0, opts.inset ?? 0);
+  if (M > 0) {
+    // classic macOS template: the body casts a soft shadow onto the transparent margin
+    const sid = defs.id('ish');
+    defs.add(
+      `<filter id="${sid}" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur in="SourceAlpha" stdDeviation="${n(C * 0.012)}"/>` +
+        `<feOffset dy="${n(C * 0.012)}" result="b"/><feFlood flood-color="#000" flood-opacity="0.3"/><feComposite in2="b" operator="in" result="s"/>` +
+        `<feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`,
+    );
+    body.push(`<g filter="url(#${sid})"><g clip-path="url(#${clipId})">${top}</g></g>`);
+  } else body.push(`<g clip-path="url(#${clipId})">${top}</g>`);
   if (effects && opts.rim !== false && mask !== 'none') {
     const rid = defs.id('rim');
     const lx = H + toLight.x * H;
@@ -423,7 +459,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   }
 
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="${-P} ${-P} ${C + 2 * P} ${C + 2 * P}">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="${-(P + M)} ${-(P + M)} ${C + 2 * (P + M)} ${C + 2 * (P + M)}">` +
     `<title>${esc(appearance)}</title><defs>${defs.toString()}</defs>${body.join('')}</svg>`
   );
 }

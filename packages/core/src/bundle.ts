@@ -44,6 +44,12 @@ export function serializeIconJson(doc: Pick<IconDocument, 'props' | 'order' | 'g
   return JSON.stringify(json, null, 2).replace(/^(\s*"[^"]*"):/gm, '$1 :') + '\n';
 }
 
+/** A relative path inside a bundle that is safe to write anywhere: no "..", no absolute or drive paths, no backslashes, control characters or hidden segments. */
+export function isSafeBundlePath(rel: string): boolean {
+  if (!rel || rel.length > 512 || rel.startsWith('/') || /[\\\u0000-\u001f:]/.test(rel)) return false;
+  return rel.split('/').every((p) => p !== '' && p !== '.' && p !== '..' && !p.startsWith('.') && p.length <= 255);
+}
+
 export function readBundle(files: FileMap): IconDocument & { extra: FileMap } {
   const jsonKey = Object.keys(files).find((k) => k === 'icon.json' || k.endsWith('/icon.json'));
   if (!jsonKey) throw new IconFormatError('icon.json not found in the bundle');
@@ -54,10 +60,12 @@ export function readBundle(files: FileMap): IconDocument & { extra: FileMap } {
   for (const [k, v] of Object.entries(files)) {
     if (!k.startsWith(prefix) || k === jsonKey || k.endsWith('/')) continue;
     const rel = k.slice(prefix.length);
+    // never carry unsafe paths (zip-slip), hidden files or folders (.git, .env) into saves and exports
+    if (!isSafeBundlePath(rel)) continue;
     if (rel.startsWith('Assets/') && rel.split('/').length === 2) {
       const name = rel.slice('Assets/'.length);
-      if (name && !name.startsWith('.')) assets[name] = makeAsset(name, v);
-    } else if (!rel.split('/').some((p) => p === '__MACOSX' || p === '.DS_Store')) {
+      if (name) assets[name] = makeAsset(name, v);
+    } else if (!rel.split('/').some((p) => p === '__MACOSX')) {
       extra[rel] = v;
     }
   }

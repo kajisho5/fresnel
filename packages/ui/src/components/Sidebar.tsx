@@ -69,7 +69,8 @@ function pruneAssetUrls(doc: IconDocument) {
 function assetUrl(a: Asset): string {
   let u = urlCache.get(a.bytes);
   if (!u) {
-    u = URL.createObjectURL(new Blob([a.bytes as unknown as ArrayBuffer], { type: mimeOf(a) }));
+    // thumbnails show the sanitized copy of an SVG
+    u = URL.createObjectURL(new Blob([(a.display ?? a.bytes) as unknown as ArrayBuffer], { type: mimeOf(a) }));
     urlCache.set(a.bytes, u);
   }
   return u;

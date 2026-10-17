@@ -1,6 +1,6 @@
 /** Node rasterizer (CLI / MCP) using resvg. */
 import type { Appearance, IconDocument, RasterOptions, Rasterize } from '@fresnel/core';
-import { renderSvg, type RenderOptions } from './compose';
+import { rasterRenderOptions, renderSvg, type RenderOptions } from './compose';
 import { renderSheetSvg } from './sheet';
 
 type ResvgModule = typeof import('@resvg/resvg-js');
@@ -34,5 +34,5 @@ export async function renderSheetPng(doc: IconDocument, opts: Omit<RenderOptions
 
 export function nodeRasterizer(doc: IconDocument, opts: Omit<RenderOptions, 'appearance' | 'size'> = {}): Rasterize {
   return (appearance: Appearance, size: number, ro?: RasterOptions) =>
-    renderPng(doc, { ...opts, appearance, size, ...(ro?.mask ? { mask: ro.mask, rim: ro.mask !== 'none' } : {}), ...(ro?.tint ? { tint: ro.tint } : {}) });
+    renderPng(doc, { ...opts, appearance, size, ...rasterRenderOptions(ro) });
 }

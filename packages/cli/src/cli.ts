@@ -19,6 +19,8 @@ import {
   buildAppIconSet,
   buildIcns,
   buildPngSet,
+  targetsWatch,
+  unrenderableLayers,
   createDocument,
   makeAsset,
   setProp,
@@ -43,7 +45,7 @@ Usage
                                                  Render an approximate preview PNG
   fresnel export <Name.icon> -o <dir> [--formats icon,icns,appiconset,png]
                  [--sizes 1024,512,...] [--appearances default,dark,...]
-                 [--tint #RRGGBB]
+                 [--tint #RRGGBB] [--force]
   fresnel mcp [--root <dir>]...                  Start the MCP server on stdio
 
 Render options: --mask squircle|circle|none, --tint #RRGGBB (tinted appearances)
@@ -154,6 +156,7 @@ async function main() {
       tint: { type: 'string' },
       mask: { type: 'string' },
       root: { type: 'string', short: 'r', multiple: true },
+      force: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -211,14 +214,21 @@ async function main() {
       const formats = (values.formats ?? 'icon,icns,appiconset,png').split(',').map((s) => s.trim());
       const raster = nodeRasterizer(doc, values.tint ? { tint: values.tint } : {});
       const outDir = resolve(values.out);
+      const missing = unrenderableLayers(doc);
+      if (missing.length && formats.some((f) => f !== 'icon') && !values.force)
+        throw new Error(`These visible layers can't be rendered and would be missing from the images: ${missing.join(', ')}. Fix them, or pass --force.`);
       let n = 0;
       for (const f of formats) {
-        if (f === 'icon') n += (await writeFiles(join(outDir, `${name}.icon`), writeBundle(doc, doc.extra))).length;
+        if (f === 'icon') {
+          // same writer as Save: unused assets from an earlier export are removed, links are never followed
+          await saveIcon(join(outDir, `${name}.icon`), doc);
+          n += 1 + Object.keys(doc.assets).length;
+        }
         else if (f === 'icns') {
           await mkdir(outDir, { recursive: true });
           await writeFile(join(outDir, `${name}.icns`), await buildIcns(raster));
           n++;
-        } else if (f === 'appiconset') n += (await writeFiles(join(outDir, 'AppIcon.appiconset'), await buildAppIconSet(raster))).length;
+        } else if (f === 'appiconset') n += (await writeFiles(join(outDir, 'AppIcon.appiconset'), await buildAppIconSet(raster, { watch: targetsWatch(doc) }))).length;
         else if (f === 'png') {
           const sizes = (values.sizes ?? '1024,512,256,128,64,32,16').split(',').map(Number);
           n += (await writeFiles(join(outDir, `${name}-png`), await buildPngSet(raster, appearances(values.appearances), sizes))).length;

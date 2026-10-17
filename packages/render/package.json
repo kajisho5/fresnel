@@ -1,6 +1,6 @@
 {
   "name": "@fresnel/render",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "fresnel SVG compositor: approximate Liquid Glass preview for .icon documents (browser + Node)",
   "license": "MIT",
   "type": "module",
