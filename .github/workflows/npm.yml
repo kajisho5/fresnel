@@ -59,7 +59,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::error::NPM_TOKEN is not set. Add it in Settings → Secrets and variables → Actions, then run this workflow again."; exit 1
+            msg="NPM_TOKEN is not set. Add it in Settings → Secrets and variables → Actions, then run this workflow by hand with the tag."
+            # a tag push without the token only warns; a manual run fails so the problem is visible
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then echo "::error::$msg"; exit 1; fi
+            echo "::warning::$msg"; exit 0
           fi
           for p in packages/cli packages/mcp; do
             name=$(node -p "require('./$p/package.json').name"); v=$(node -p "require('./$p/package.json').version")
