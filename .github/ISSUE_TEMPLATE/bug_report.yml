@@ -1,0 +1,39 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options: [Web app, Desktop (macOS), Desktop (Windows), Desktop (Linux), CLI, MCP server]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Browser or OS version
+      placeholder: e.g. Chrome 141 on macOS 26, Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the sample
+        2. Select "Waves"
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Files and screenshots
+      description: Attach the .icon (zipped) or a screenshot if you can. Remove anything private first.

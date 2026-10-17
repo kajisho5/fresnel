@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an idea or an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the task or problem, not just the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+  - type: textarea
+    id: icon-composer
+    attributes:
+      label: How does Icon Composer handle it?
+      description: If Apple's Icon Composer has this feature, describe how it works there.

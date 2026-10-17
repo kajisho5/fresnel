@@ -155,6 +155,12 @@ export const useDoc = create<DocState>()(
   ),
 );
 
+/** Marks the current document as never saved (e.g. restored from autosave). */
+export const markUnsaved = () => {
+  savedDoc = null;
+  useDoc.setState({ dirty: true });
+};
+
 export const undo = () => {
   const t = useDoc.temporal.getState();
   if (!t.pastStates.length) return;

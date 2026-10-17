@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "shots": "vite build && playwright test -c playwright.shots.config.ts"
   },
   "dependencies": {
     "@fresnel/ui": "workspace:*",

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: User guide
+    url: https://github.com/kajisho5/fresnel/blob/main/docs/USER_GUIDE.md
+    about: How every feature works, plus troubleshooting
+  - name: Security vulnerability
+    url: https://github.com/kajisho5/fresnel/security/advisories/new
+    about: Report privately, please don't open a public issue

@@ -76,9 +76,11 @@ interface SettingProps<T> {
   control: (value: T, set: (v: unknown) => void) => ReactNode;
   /** value written to a variant when the control asks to remove (defaults to `fallback`) */
   explicitDefault?: unknown;
+  /** puts the control on its own full-width line under the label (colors, layout) */
+  wide?: boolean;
 }
 
-function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicitDefault }: SettingProps<T>) {
+function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicitDefault, wide }: SettingProps<T>) {
   const doc = useDoc((s) => s.doc);
   const ui = useUI();
   const props = propsOf(doc, nodeRef);
@@ -104,7 +106,7 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicit
   ].filter((o) => !variants.some((x) => x.appearance === o.v.appearance && x.idiom === o.v.idiom));
   return (
     <div className="py-1">
-      <div className="group/setting flex min-h-8 items-center gap-2">
+      <div className={cx('group/setting flex min-h-8 gap-2', wide ? 'flex-col items-stretch' : 'items-center')}>
         <div className="flex w-[104px] shrink-0 items-center gap-1 text-xs text-t2">
           <span className="truncate">{label}</span>
           {scope === 'all' && varyOptions.length > 0 && (
@@ -126,7 +128,7 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicit
             </button>
           )}
         </div>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">{control(value, setFor(variant))}</div>
+        <div className={cx('flex min-w-0 flex-1 items-center gap-2', wide ? 'justify-start' : 'justify-end')}>{control(value, setFor(variant))}</div>
       </div>
       {scope === 'all' &&
         variants.map((v) => {
@@ -134,7 +136,7 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicit
           const active =
             (v.appearance === undefined || v.appearance === curAppearance) && (v.idiom === undefined || v.idiom === ui.platform || (v.idiom === 'square' && ui.platform !== 'watchOS'));
           return (
-            <div key={`${v.appearance}-${v.idiom}`} className="flex min-h-7 items-center gap-2 pl-3">
+            <div key={`${v.appearance}-${v.idiom}`} className={cx('flex min-h-7 gap-2 pl-3', wide ? 'flex-col items-stretch pt-1' : 'items-center')}>
               <div className="flex w-[92px] shrink-0 items-center gap-1 text-[11px]">
                 <button
                   type="button"
@@ -147,7 +149,7 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicit
                 </button>
                 <span className={cx('truncate font-medium', active ? 'text-override' : 'text-t3')}>{VARIANT_LABEL(v)}</span>
               </div>
-              <div className={cx('flex min-w-0 flex-1 items-center justify-end gap-2', !active && 'opacity-60')}>{control(vv ?? fallback, setFor(v))}</div>
+              <div className={cx('flex min-w-0 flex-1 items-center gap-2', wide ? 'justify-start' : 'justify-end', !active && 'opacity-60')}>{control(vv ?? fallback, setFor(v))}</div>
             </div>
           );
         })}
@@ -307,7 +309,7 @@ function DocumentStyle() {
   const ref: NodeRef = { kind: 'document' };
   return (
     <Section title={t('color')} section="color">
-      <Setting nodeRef={ref} section="color" attr="fill" label={t('fill')} fallback={'automatic' as unknown} control={(v, set) => <FillControl value={v} set={set} layer={false} />} />
+      <Setting nodeRef={ref} section="color" attr="fill" label={t('fill')} fallback={'automatic' as unknown} wide control={(v, set) => <FillControl value={v} set={set} layer={false} />} />
     </Section>
   );
 }
@@ -448,7 +450,7 @@ function LayerStyle({ id }: { id: string }) {
   return (
     <>
       <Section title={t('color')} section="color">
-        <Setting nodeRef={ref} section="color" attr="fill" label={t('fill')} fallback={null as unknown} explicitDefault="automatic" control={(v, set) => <FillControl value={v} set={set} layer />} />
+        <Setting nodeRef={ref} section="color" attr="fill" label={t('fill')} fallback={null as unknown} explicitDefault="automatic" wide control={(v, set) => <FillControl value={v} set={set} layer />} />
         <Setting nodeRef={ref} section="color" attr="blend-mode" label={t('blendMode')} fallback="normal" control={(v, set) => <BlendSelect value={v} set={set} />} />
         <Setting nodeRef={ref} section="color" attr="opacity" label={t('opacity')} fallback={1} control={(v, set) => <Slider label={t('opacity')} value={v} onChange={set} format={fmtPct} parse={parsePct} defaultValue={1} />} />
       </Section>
@@ -497,6 +499,7 @@ function CompositionSection({ nodeRef }: { nodeRef: NodeRef }) {
         section="composition"
         attr="position"
         label={t('layout')}
+        wide
         fallback={{ scale: 1, 'translation-in-points': [0, 0] } as Position}
         control={(p, set) => {
           const [x, y] = p['translation-in-points'] ?? [0, 0];

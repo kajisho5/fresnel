@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { History } from 'lucide-react';
-import { useDoc } from '../store/doc';
+import { markUnsaved, useDoc } from '../store/doc';
 import { useUI } from '../store/ui';
 import { t, useLang } from '../i18n';
 import { clearSnapshot, readSnapshot, restoreSnapshot, writeSnapshot, type Snapshot } from '../lib/autosave';
@@ -100,7 +100,7 @@ export function Recovery() {
                 try {
                   const r = restoreSnapshot(pending);
                   useDoc.getState().load(r.doc, { name: r.name, location: r.location, extra: r.extra });
-                  useDoc.setState({ dirty: true });
+                  markUnsaved();
                   useUI.getState().select({ kind: 'document' });
                   useUI.getState().toast('success', t('restored'));
                 } catch (e) {

@@ -43,7 +43,10 @@ Usage
                                                  Render an approximate preview PNG
   fresnel export <Name.icon> -o <dir> [--formats icon,icns,appiconset,png]
                  [--sizes 1024,512,...] [--appearances default,dark,...]
+                 [--tint #RRGGBB]
   fresnel mcp [--root <dir>]...                  Start the MCP server on stdio
+
+Render options: --mask squircle|circle|none, --tint #RRGGBB (tinted appearances)
 
 Appearances: ${APPEARANCES.join(', ')}
 Docs: https://github.com/kajisho5/fresnel
@@ -151,8 +154,13 @@ async function main() {
       tint: { type: 'string' },
       mask: { type: 'string' },
       root: { type: 'string', short: 'r', multiple: true },
+      help: { type: 'boolean', short: 'h' },
     },
   });
+  if (values.help) {
+    process.stdout.write(HELP);
+    return;
+  }
   const input = positionals[0];
   const need = () => {
     if (!input) throw new Error(`Missing input. Run "fresnel --help".`);
