@@ -4,6 +4,8 @@ All notable changes to fresnel are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-17
+
 ### Security
 - MCP / CLI `--root`: a dangling symbolic link (or a symlinked output folder) could redirect previews and exports outside the allowed roots.
 - SVG sanitizer: CSS escapes nested five or more times inside `<style>` could survive as markup; `image-set()` / `src()` URLs are removed; decoded style values are written back escaped.
@@ -103,7 +105,8 @@ First public version. The web app is live at https://kajisho5.github.io/fresnel/
 - Imported SVG is cleaned with a tokenizer and an allowlist (no scripts, event handlers, external references or animation).
 - The MCP server only reads and writes inside its `--root` folders.
 
-[Unreleased]: https://github.com/kajisho5/fresnel/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kajisho5/fresnel/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/kajisho5/fresnel/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kajisho5/fresnel/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/kajisho5/fresnel/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/kajisho5/fresnel/releases/tag/v0.1.0

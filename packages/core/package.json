@@ -1,6 +1,6 @@
 {
   "name": "@fresnel/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "fresnel core: .icon (icon.json) model, parser/serializer, validation and export",
   "license": "MIT",
   "type": "module",

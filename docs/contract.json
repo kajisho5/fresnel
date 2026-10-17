@@ -1,7 +1,7 @@
 {
   "contract_version": "1.0",
   "name": "fresnel",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Create, edit, preview and export Apple Liquid Glass app icons (.icon bundles, the Icon Composer format).",
   "conventions": {
     "targets": "\"document\", \"<Group>\" or \"<Group>/<Layer>\" (names or #index; index 0 is frontmost)",

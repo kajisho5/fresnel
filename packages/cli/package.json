@@ -1,6 +1,6 @@
 {
   "name": "fresnel-icon",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "fresnel CLI: build, validate, render and export Liquid Glass app icons (.icon bundles) from the command line or CI",
   "license": "MIT",
   "type": "module",
