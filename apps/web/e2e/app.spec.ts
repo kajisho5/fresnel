@@ -23,7 +23,7 @@ test('loads the sample without errors', async ({ page }) => {
   const errors = await open(page);
   await expect(page.getByRole('treeitem', { name: /Waves/ })).toBeVisible();
   await expect(page.getByRole('treeitem', { name: /Wave Front/ })).toBeVisible();
-  for (const p of ['iOS', 'macOS', 'watchOS']) await expect(page.getByRole('radio', { name: p, exact: true })).toBeVisible();
+  for (const p of ['iOS, macOS', 'watchOS']) await expect(page.getByRole('radio', { name: p, exact: true })).toBeVisible();
   for (const a of ['Default', 'Dark', 'Mono']) await expect(page.getByRole('radio', { name: a, exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });

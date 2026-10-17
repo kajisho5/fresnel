@@ -167,7 +167,9 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   let darken = 0;
   if (dark && !darkOverridden && bgFill !== 'automatic' && bgFill !== 'system-dark' && bgFill !== 'none') darken = 0.62; // system-generated dark
   let bgPaint: string | null;
-  const full = { x: 0, y: 0, w: C, h: C };
+  // watchOS: the canvas is 1088 pt, 32 pt larger on each side than the shared 1024 artwork (Apple HIG)
+  const P = mask === 'circle' ? 32 : 0;
+  const full = { x: -P, y: -P, w: C + 2 * P, h: C + 2 * P };
   // an explicit Mono ("tinted") fill override replaces the system-generated clear / tinted background [推測]
   const monoOverride = (isClear || isTinted) && !!fillProp?.specs?.some((s) => s.appearance === 'tinted' || s.appearance === appearance);
   if (monoOverride) {
@@ -196,8 +198,8 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   const bgStackId = stackId;
   const contentIds: string[] = [];
   defs.add(
-    `<g id="${stackId}">${bgPaint ? `<rect width="${C}" height="${C}" fill="${bgPaint}"/>` : ''}` +
-      (darken ? `<rect width="${C}" height="${C}" fill="#000" opacity="${darken}"/>` : '') +
+    `<g id="${stackId}">${bgPaint ? `<rect x="${-P}" y="${-P}" width="${C + 2 * P}" height="${C + 2 * P}" fill="${bgPaint}"/>` : ''}` +
+      (darken ? `<rect x="${-P}" y="${-P}" width="${C + 2 * P}" height="${C + 2 * P}" fill="#000" opacity="${darken}"/>` : '') +
       `</g>`,
   );
 
@@ -314,10 +316,25 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
     }
 
     // content
-    const gOpacity =
-      resolveProp<number>(g.props.opacity, ctx, 1) * (translucent ? 1 - tr!.value * 0.55 : 1) * (refracts && !translucent ? 1 - (refr!.strength ?? 0) * 0.3 : 1);
+    const gOpacity = resolveProp<number>(g.props.opacity, ctx, 1) * (refracts && !translucent ? 1 - (refr!.strength ?? 0) * 0.3 : 1);
+    // translucency keeps color at the top of the shape and lets more of the background through toward the bottom
+    let fadeMask = '';
+    if (translucent) {
+      const v = Math.min(1, Math.max(0, tr!.value));
+      const gid = defs.id('tg');
+      const mid = defs.id('tm');
+      defs.add(
+        `<linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="${n(1 - v * 0.2)}"/>` +
+          `<stop offset="1" stop-color="#fff" stop-opacity="${n(1 - v * 0.85)}"/></linearGradient>` +
+          `<mask id="${mid}" maskUnits="objectBoundingBox" maskContentUnits="objectBoundingBox" x="0" y="0" width="1" height="1">` +
+          `<rect width="1" height="1" fill="url(#${gid})"/></mask>`,
+      );
+      fadeMask = ` mask="url(#${mid})"`;
+    }
     const gBlend = cssBlend(resolveProp<string>(g.props['blend-mode'], ctx, 'normal'));
-    out.push(`<use href="#${contentId}"${gOpacity < 1 ? ` opacity="${n(gOpacity)}"` : ''}${gBlend ? ` style="mix-blend-mode:${gBlend}"` : ''}/>`);
+    out.push(
+      `<g${fadeMask}${gOpacity < 1 ? ` opacity="${n(gOpacity)}"` : ''}${gBlend ? ` style="mix-blend-mode:${gBlend}"` : ''}><use href="#${contentId}"/></g>`,
+    );
 
     // specular highlight on glass layers
     const specular = resolveProp<boolean | 'inside' | 'outside'>(g.props.specular, ctx, true);
@@ -406,7 +423,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   }
 
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${C} ${C}">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="${-P} ${-P} ${C + 2 * P} ${C + 2 * P}">` +
     `<title>${esc(appearance)}</title><defs>${defs.toString()}</defs>${body.join('')}</svg>`
   );
 }

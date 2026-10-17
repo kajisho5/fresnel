@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { Grid3x3, ImagePlus, LayoutGrid, Plus, Sparkles, SlidersHorizontal } from 'lucide-react';
-import { CANVAS, resolveProp, type Position } from '@fresnel/core';
+import { CANVAS, resolveProp, squarePlatforms, type Position } from '@fresnel/core';
 import { renderSvg } from '@fresnel/render';
 import { beginGesture, endGesture, useDoc } from '../store/doc';
 import { currentAppearance, currentAppearanceKey, tintHex, useUI, type BackgroundImage, type Platform } from '../store/ui';
@@ -11,6 +11,7 @@ import { svgToPngBytes } from '../lib/raster';
 import { hitTest, layout, type NodeBox } from '../lib/geometry';
 import { importLayers, openIcon, openSample } from '../actions';
 import { Button, Segmented, Slider, Toggle, cx } from './controls';
+import { editIdiom } from '../lib/idiom';
 
 export const WALLPAPERS: Record<Exclude<BackgroundImage, 'none' | 'custom'>, string> = {
   gradient: 'linear-gradient(135deg,#5B8CFF 0%,#9B6BFF 50%,#FF7AB6 100%)',
@@ -221,10 +222,12 @@ function CanvasBottomBar() {
   const ui = useUI();
   const doc = useDoc((s) => s.doc);
   const plat = resolveProp<{ squares?: unknown; circles?: string[] }>(doc.props['supported-platforms'], { appearance: 'default' }, { squares: 'shared' });
-  const squares = plat.squares;
+  const squares = squarePlatforms(plat.squares);
+  const shared = squares === 'shared';
+  // shared squares are one platform in Icon Composer ("iOS, macOS"); it previews as iOS
   const platforms: Platform[] = [
-    ...(squares === 'shared' || (Array.isArray(squares) && squares.includes('iOS')) ? (['iOS'] as Platform[]) : []),
-    ...(squares === 'shared' || (Array.isArray(squares) && squares.includes('macOS')) ? (['macOS'] as Platform[]) : []),
+    ...(shared || squares.includes('iOS') ? (['iOS'] as Platform[]) : []),
+    ...(!shared && squares.includes('macOS') ? (['macOS'] as Platform[]) : []),
     ...((plat.circles ?? []).includes('watchOS') ? (['watchOS'] as Platform[]) : []),
   ];
   useEffect(() => {
@@ -238,7 +241,7 @@ function CanvasBottomBar() {
         className="min-w-[200px]"
         value={ui.platform}
         onChange={(p) => ui.set({ platform: p })}
-        options={(platforms.length ? platforms : (['iOS'] as Platform[])).map((p) => ({ value: p, label: p }))}
+        options={(platforms.length ? platforms : (['iOS'] as Platform[])).map((p) => ({ value: p, label: shared && p === 'iOS' ? 'iOS, macOS' : p }))}
       />
       <span className="flex items-center gap-1.5 text-[11px] text-t3" title={t('approxLong')}>
         <span className="h-1.5 w-1.5 rounded-full bg-t3" />
@@ -335,7 +338,11 @@ function Stage() {
   const empty = doc.groups.length === 0;
   const x0 = Math.round(box.w / 2 - size / 2);
   const y0 = Math.round(box.h / 2 - size / 2);
-  const k = size / CANVAS;
+  // watchOS previews a 1088 pt canvas around the 1024 pt artwork (see the renderer)
+  const pad = ui.platform === 'watchOS' ? 32 : 0;
+  const k = size / (CANVAS + 2 * pad);
+  const ax0 = x0 + pad * k;
+  const ay0 = y0 + pad * k;
   const ctx = { appearance: currentAppearance(ui), idiom: ui.platform };
   const geo = useMemo(() => layout(doc, ctx), [doc, ctx.appearance, ctx.idiom]); // eslint-disable-line react-hooks/exhaustive-deps
   const sel = ui.selection;
@@ -346,10 +353,10 @@ function Stage() {
 
   const toPt = (e: { clientX: number; clientY: number }) => {
     const r = ref.current!.getBoundingClientRect();
-    return { x: (e.clientX - r.left - x0) / k, y: (e.clientY - r.top - y0) / k };
+    return { x: (e.clientX - r.left - ax0) / k, y: (e.clientY - r.top - ay0) / k };
   };
 
-  const variantFor = () => (ui.sectionScope.composition === 'variant' ? { idiom: ui.platform } : undefined);
+  const variantFor = () => (ui.sectionScope.composition === 'variant' ? { idiom: editIdiom(ui) } : undefined);
 
   const posOf = (r: { kind: 'group' | 'layer'; id: string }): Position => {
     const d = useDoc.getState().doc;
@@ -470,7 +477,7 @@ function Stage() {
           {selBox && (
             <div
               className="pointer-events-none absolute rounded-[2px] border border-accent shadow-[0_0_0_1px_rgba(0,0,0,0.25)]"
-              style={{ left: x0 + selBox.x * k, top: y0 + selBox.y * k, width: selBox.w * k, height: selBox.h * k }}
+              style={{ left: ax0 + selBox.x * k, top: ay0 + selBox.y * k, width: selBox.w * k, height: selBox.h * k }}
               data-testid="selection-box"
             >
               {[

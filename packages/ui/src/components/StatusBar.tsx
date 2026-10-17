@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
-import { baseValue, summarizeIssues, validate, type Issue } from '@fresnel/core';
+import { baseValue, squarePlatforms, summarizeIssues, validate, type Issue } from '@fresnel/core';
 import { useDoc } from '../store/doc';
 import { useUI } from '../store/ui';
 import { t, useLang } from '../i18n';
@@ -35,7 +35,7 @@ export function StatusBar() {
   const actool = useActool();
   const sum = summarizeIssues(issues);
   const platforms = baseValue(doc.props['supported-platforms']) as { squares?: unknown; circles?: string[] } | undefined;
-  const plat = [platforms?.squares !== undefined ? t('squaresShared') : null, platforms?.circles?.length ? t('circlesList', { list: platforms.circles.join(', ') }) : null].filter(Boolean).join(' · ');
+  const plat = [platforms?.squares === undefined ? null : squarePlatforms(platforms.squares) === 'shared' ? t('squaresShared') : (squarePlatforms(platforms.squares) as string[]).join(', '), platforms?.circles?.length ? t('circlesList', { list: platforms.circles.join(', ') }) : null].filter(Boolean).join(' · ');
   const cs = (baseValue(doc.props['color-space-for-untagged-svg-colors']) as string | undefined) ?? 'display-p3';
 
   return (

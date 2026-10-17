@@ -4,6 +4,7 @@ import { useDoc } from './store/doc';
 import { currentAppearance, currentAppearanceKey, useUI } from './store/ui';
 import { t } from './i18n';
 import { create } from 'zustand';
+import { editIdiom } from './lib/idiom';
 
 export const useRename = create<{ id: string | null; set(id: string | null): void }>()((set) => ({ id: null, set: (id) => set({ id }) }));
 
@@ -103,7 +104,7 @@ export function toggleVisible(ref: NodeRef = sel()) {
     { idiom },
     ...(idiom !== 'watchOS' ? [{ idiom: 'square' as Idiom }] : []),
   ];
-  const from = ui.sectionScope.composition === 'variant' ? { idiom } : candidates.find((v) => hasVariant(prop, v));
+  const from = ui.sectionScope.composition === 'variant' ? { idiom: editIdiom(ui) } : candidates.find((v) => hasVariant(prop, v));
   useDoc.getState().setProp(ref, 'hidden', from ? !hidden : hidden ? null : true, from);
 }
 
@@ -118,7 +119,7 @@ export function nudge(dx: number, dy: number) {
   const ctx = { appearance: currentAppearance(ui), idiom: ui.platform };
   const p = resolveProp<Position>(node.props.position, ctx, { scale: 1, 'translation-in-points': [0, 0] }) ?? { scale: 1, 'translation-in-points': [0, 0] };
   const [x, y] = p['translation-in-points'];
-  useDoc.getState().setProp(s, 'position', { ...p, 'translation-in-points': [x + dx, y + dy] }, ui.sectionScope.composition === 'variant' ? { idiom: ui.platform } : undefined);
+  useDoc.getState().setProp(s, 'position', { ...p, 'translation-in-points': [x + dx, y + dy] }, ui.sectionScope.composition === 'variant' ? { idiom: editIdiom(ui) } : undefined);
 }
 
 // ---------------------------------------------------------------- copy / paste style

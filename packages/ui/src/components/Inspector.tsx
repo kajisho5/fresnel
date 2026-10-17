@@ -8,6 +8,7 @@ import {
   makeAsset,
   nameOf,
   normalizeColorInput,
+  squarePlatforms,
   addAsset,
   recolor,
   withAlpha,
@@ -32,6 +33,7 @@ import { getPlatform } from '../actions';
 import { useRename } from '../commands';
 import { ColorWell, NumberField, Segmented, Select, Slider, Toggle, cx } from './controls';
 import { useMenu } from './Menu';
+import { editIdiom, idiomLabel } from '../lib/idiom';
 
 function propsOf(doc: IconDocument, ref: NodeRef): PropMap | null {
   if (ref.kind === 'document') return doc.props;
@@ -42,14 +44,14 @@ function propsOf(doc: IconDocument, ref: NodeRef): PropMap | null {
 /** The variant a section edits when its scope is set to the current appearance / platform. */
 function sectionVariant(section: SectionKey): Variant | null {
   const ui = useUI.getState();
-  if (section === 'composition') return { idiom: ui.platform as Idiom };
+  if (section === 'composition') return { idiom: editIdiom(ui) };
   const k = currentAppearanceKey(ui);
   return k ? { appearance: k } : null;
 }
 
 function sectionVariantLabel(section: SectionKey): string | null {
   const ui = useUI.getState();
-  if (section === 'composition') return ui.platform;
+  if (section === 'composition') return idiomLabel(editIdiom(ui));
   return ui.appearanceMode === 'default' ? null : APPEARANCE_MODE_LABEL[ui.appearanceMode];
 }
 
@@ -102,7 +104,7 @@ function Setting<T>({ nodeRef, section, attr, label, fallback, control, explicit
   const curAppearance = currentAppearanceKey(ui);
   const varyOptions: { label: string; v: Variant }[] = [
     ...(curAppearance ? [{ label: `${t('varyFor')} ${APPEARANCE_MODE_LABEL[ui.appearanceMode]}`, v: { appearance: curAppearance as AppearanceKey } }] : []),
-    { label: `${t('varyFor')} ${ui.platform}`, v: { idiom: ui.platform as Idiom } },
+    { label: `${t('varyFor')} ${idiomLabel(editIdiom(ui))}`, v: { idiom: editIdiom(ui) } },
   ].filter((o) => !variants.some((x) => x.appearance === o.v.appearance && x.idiom === o.v.idiom));
   return (
     <div className="py-1">
@@ -207,9 +209,8 @@ function FillControl({ value, set, layer }: { value: unknown; set: (v: unknown) 
     '---',
     { value: 'solid', label: t('solid') },
     { value: 'gradient', label: t('gradient') },
-    ...(layer
-      ? []
-      : ([{ value: 'automatic-gradient', label: t('autoGradient') }, '---', { value: 'system-light', label: t('systemLight') }, { value: 'system-dark', label: t('systemDark') }] as ({ value: FillKind; label: string } | '---')[])),
+    { value: 'automatic-gradient', label: t('autoGradient') },
+    ...(layer ? [] : (['---', { value: 'system-light', label: t('systemLight') }, { value: 'system-dark', label: t('systemDark') }] as ({ value: FillKind; label: string } | '---')[])),
   ];
   const seed = normalizeColorInput(kind === 'gradient' ? toHex(grad[0]) : toHex(f.solid ?? f['automatic-gradient'] ?? '#3D7BFF'));
   const setKind = (k: FillKind) => {
@@ -522,7 +523,8 @@ function DocumentInspector() {
   const doc = useDoc((s) => s.doc);
   const plat = (baseValue(doc.props['supported-platforms']) as { squares?: unknown; circles?: string[] } | undefined) ?? { squares: 'shared' };
   const cs = (baseValue(doc.props['color-space-for-untagged-svg-colors']) as string | undefined) ?? 'display-p3';
-  const squares = plat.squares === 'shared' ? 'shared' : Array.isArray(plat.squares) ? (plat.squares.includes('iOS') ? 'iOS' : plat.squares.includes('macOS') ? 'macOS' : 'off') : 'off';
+  const sq = squarePlatforms(plat.squares);
+  const squares = sq === 'shared' ? 'shared' : sq.includes('iOS') ? 'iOS' : sq.includes('macOS') ? 'macOS' : 'off';
   const setPlat = (p: { squares?: unknown; circles?: string[] }) => {
     const clean: Record<string, unknown> = {};
     if (p.circles?.length) clean.circles = p.circles;

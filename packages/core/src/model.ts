@@ -31,6 +31,9 @@ export function appearanceKeys(a: Appearance): AppearanceKey[] {
     case 'tinted-light':
     case 'tinted-dark':
       return ['tinted'];
+    case 'default':
+      // Icon Composer writes "appearance": "light" specializations for the Default appearance
+      return ['light'];
     default:
       return [];
   }

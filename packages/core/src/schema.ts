@@ -50,13 +50,15 @@ export const TranslucencySchema = z.object({ enabled: z.boolean(), value: z.numb
 export type Translucency = z.infer<typeof TranslucencySchema>;
 
 export const RefractivitySchema = z
-  .object({ enabled: z.boolean(), strength: z.number().min(0).max(1), depth: z.number().min(0).max(1) })
+  // negative values are allowed: Icon Composer 2026 has inverse refraction (storage form unknown) [推測]
+  .object({ enabled: z.boolean(), strength: z.number().min(-1).max(1), depth: z.number().min(-1).max(1) })
   .loose();
 export type Refractivity = z.infer<typeof RefractivitySchema>;
 
 export const SupportedPlatformsSchema = z
   .object({
-    squares: z.union([z.literal('shared'), z.array(z.string())]).optional(),
+    // "shared", ["iOS"] or {"platforms": ["iOS"]} (both list forms appear in community tools)
+    squares: z.union([z.literal('shared'), z.array(z.string()), z.object({ platforms: z.array(z.string()) }).loose()]).optional(),
     circles: z.array(z.string()).optional(),
   })
   .loose();

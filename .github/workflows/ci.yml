@@ -22,6 +22,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r run typecheck
+      - name: Check the macOS Info.plist parses
+        run: python3 -c "import plistlib; plistlib.load(open('apps/desktop/src-tauri/Info.plist', 'rb'))"
       - run: pnpm test
       - name: Build CLI and MCP server
         run: pnpm --filter fresnel-mcp --filter fresnel-icon run build

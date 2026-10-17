@@ -21,7 +21,11 @@ const SQUIRCLE = squirclePath();
 const C = CANVAS;
 
 export function maskPath(shape: MaskShape): string {
-  if (shape === 'circle') return `M${C / 2},0 A${C / 2},${C / 2} 0 1 1 ${C / 2},${C} A${C / 2},${C / 2} 0 1 1 ${C / 2},0Z`;
+  // watchOS: a 1088 pt circle centered on the 1024 artwork (32 pt outside it on every side)
+  if (shape === 'circle') {
+    const r = C / 2 + 32;
+    return `M${C / 2},${C / 2 - r} A${r},${r} 0 1 1 ${C / 2},${C / 2 + r} A${r},${r} 0 1 1 ${C / 2},${C / 2 - r}Z`;
+  }
   if (shape === 'none') return `M0,0 H${C} V${C} H0Z`;
   return SQUIRCLE;
 }

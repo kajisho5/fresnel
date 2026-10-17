@@ -3,7 +3,8 @@ import { currentAppearance, tintHex, useUI, type UIState } from '../store/ui';
 
 export function renderOptsFrom(s: UIState): RenderOptions {
   return {
-    appearance: currentAppearance(s),
+    // watchOS icons have no appearances
+    appearance: s.platform === 'watchOS' ? 'default' : currentAppearance(s),
     idiom: s.platform,
     mask: s.platform === 'watchOS' ? 'circle' : 'squircle',
     tint: tintHex(s),

@@ -106,6 +106,14 @@ export function nodeOf(doc: IconDocument, ref: NodeRef): { kind: NodeKind; props
 
 // ---------------------------------------------------------------- groups & layers
 
+/** Normalizes supported-platforms.squares: "shared", a list, or {platforms: [...]} → "shared" or a list. */
+export function squarePlatforms(squares: unknown): 'shared' | string[] {
+  if (squares === 'shared') return 'shared';
+  if (Array.isArray(squares)) return squares.filter((x): x is string => typeof x === 'string');
+  const p = (squares as { platforms?: unknown } | null | undefined)?.platforms;
+  return Array.isArray(p) ? p.filter((x): x is string => typeof x === 'string') : [];
+}
+
 /** Names are addressed as "Group/Layer", so "/" is replaced in names fresnel writes. */
 export function cleanName(name: string): string {
   return name.replace(/[\/\u0000-\u001f]/g, '-').trim();
@@ -119,15 +127,13 @@ export function uniqueName(existing: string[], wanted0: string): string {
   return `${wanted} ${i}`;
 }
 
-/** Icon Composer supports up to 4 groups, and actool rejects icons with more. */
+/**
+ * Apple recommends at most 4 groups, and some actool versions reject icons with more visible groups,
+ * but Icon Composer itself can write more. fresnel warns (V-09) instead of refusing.
+ */
 export const MAX_GROUPS = 4;
 
-function assertGroupRoom(doc: IconDocument) {
-  if (doc.groups.length >= MAX_GROUPS) throw new OpError(`An icon can have up to ${MAX_GROUPS} groups. Add the layer to an existing group instead.`);
-}
-
 export function addGroup(doc: IconDocument, opts: { name?: string; index?: number } = {}): GroupNode {
-  assertGroupRoom(doc);
   const name = uniqueName(doc.groups.map(nameOf), opts.name ?? 'Group');
   const g: GroupNode = { id: newId('g'), props: {}, order: [], layers: [] };
   // Written explicitly: defaults for absent keys are not documented by Apple.
@@ -179,7 +185,9 @@ export function addLayer(doc: IconDocument, groupId: string, asset: Asset, opts:
   const l: LayerNode = { id: newId('l'), props: {}, order: [] };
   setPropValue(l.props, 'image-name', imageName);
   setPropValue(l.props, 'name', uniqueName(g.layers.map(nameOf), base));
-  l.order = ['image-name', 'name'];
+  // Icon Composer applies Liquid Glass to imported layers automatically
+  setPropValue(l.props, 'glass', true);
+  l.order = ['glass', 'image-name', 'name'];
   for (const [k, v] of Object.entries(opts.props ?? {})) setProp(doc, { kind: 'layer', id: l.id }, k, v, undefined, l);
   g.layers.splice(clampIndex(opts.index ?? 0, g.layers.length), 0, l);
   return l;
@@ -284,8 +292,7 @@ export function duplicateNode(doc: IconDocument, ref: NodeRef): NodeRef {
   if (ref.kind === 'group') {
     const i = doc.groups.findIndex((g) => g.id === ref.id);
     if (i < 0) throw new OpError('Group not found');
-    assertGroupRoom(doc);
-    const src = doc.groups[i]!;
+      const src = doc.groups[i]!;
     const copy: GroupNode = structuredClone(src);
     copy.id = newId('g');
     copy.layers.forEach((l) => (l.id = newId('l')));
