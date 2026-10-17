@@ -4,6 +4,8 @@ All notable changes to fresnel are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-17
+
 ### Fixed
 - A layer with a fill near the edge of a scaled-down group was cut off in previews and exports (regression in 0.2.1).
 - Replacing a layer's image removes the old image from Assets/ when nothing else uses it.
@@ -111,7 +113,8 @@ First public version. The web app is live at https://kajisho5.github.io/fresnel/
 - Imported SVG is cleaned with a tokenizer and an allowlist (no scripts, event handlers, external references or animation).
 - The MCP server only reads and writes inside its `--root` folders.
 
-[Unreleased]: https://github.com/kajisho5/fresnel/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/kajisho5/fresnel/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/kajisho5/fresnel/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/kajisho5/fresnel/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kajisho5/fresnel/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/kajisho5/fresnel/compare/v0.1.0...v0.1.1
