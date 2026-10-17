@@ -6,6 +6,9 @@ All notable changes to fresnel are listed here. The format follows [Keep a Chang
 
 ## [0.1.1] - 2026-10-17
 
+### Added
+- First desktop releases: macOS (universal, Developer ID signed and notarized), Windows and Linux.
+
 ### Fixed
 - macOS release build: `Info.plist` was malformed.
 - SVG files are saved and exported exactly as imported. Only previews and image exports use the cleaned copy, so Illustrator SVGs with entities and SVGs with links no longer turn blank.
@@ -47,7 +50,6 @@ First public version. The web app is live at https://kajisho5.github.io/fresnel/
 - Lossless `icon.json` round trips, verified on files written by Icon Composer.
 - English and Japanese UI, dark and light themes.
 - Brand assets: logo, favicons, PWA icons, Open Graph and GitHub social images.
-- Desktop releases: macOS (universal, Developer ID signed and notarized), Windows and Linux.
 - npm packages `fresnel-icon` and `fresnel-mcp`, published with provenance.
 - User guide in English and Japanese (`docs/USER_GUIDE.md`, `docs/USER_GUIDE.ja.md`), plus contributing, security and issue templates.
 - `fresnel <command> --help` works for every command.

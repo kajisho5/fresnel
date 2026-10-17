@@ -94,8 +94,8 @@ Apple's Icon Composer makes layered Liquid Glass icons, but it only runs on a Ma
 | | How | Notes |
 |---|---|---|
 | **Web** | Open **https://kajisho5.github.io/fresnel/** | Runs entirely in your browser. In Chrome, Edge and other Chromium browsers you can open an `.icon` folder and save back into it. In Safari and Firefox, open and save `.icon.zip` files instead. |
-| **Desktop** | Downloads will be on [Releases](https://github.com/kajisho5/fresnel/releases) | There's no release yet. Until then, build it yourself: `pnpm install && pnpm --filter @fresnel/desktop build` (needs Rust). |
-| **CLI and MCP** | From source (see [Command line](#command-line)) | npm packages (`fresnel-icon`, `fresnel-mcp`) are planned. |
+| **Desktop** | Download from [Releases](https://github.com/kajisho5/fresnel/releases/latest) | macOS: `fresnel_<version>_universal.dmg` (Apple silicon and Intel, signed and notarized). Windows: `_x64-setup.exe` or `.msi`. Linux: `.AppImage`, `.deb` or `.rpm`. |
+| **CLI and MCP** | `npx fresnel-icon --help` · `npx -y fresnel-mcp --root ~/Icons` | Published on npm as [`fresnel-icon`](https://www.npmjs.com/package/fresnel-icon) and [`fresnel-mcp`](https://www.npmjs.com/package/fresnel-mcp), with provenance. Needs Node.js 20 or later. |
 
 ## A five-minute tour
 
@@ -168,17 +168,12 @@ The rules come from Apple's [Human Interface Guidelines for app icons](https://d
 
 fresnel includes a [Model Context Protocol](https://modelcontextprotocol.io) server, so Claude and other agents can design icons. They can create a bundle, draw layers as SVG, tune the glass, **look at the rendered result** and export it. The server uses stdio, and it can only read and write inside the folders you pass with `--root`.
 
-**Set it up.** Until the npm package is published, build it from source:
-
-```bash
-git clone https://github.com/kajisho5/fresnel && cd fresnel
-pnpm install && pnpm build
-```
+**Set it up.** It runs straight from npm (Node.js 20 or later).
 
 Claude Code:
 
 ```bash
-claude mcp add fresnel -- node /path/to/fresnel/packages/mcp/dist/server.js --root ~/Icons
+claude mcp add fresnel -- npx -y fresnel-mcp --root ~/Icons
 ```
 
 Claude Desktop, Cursor and other clients use an `mcpServers` entry in the client's config file:
@@ -187,8 +182,8 @@ Claude Desktop, Cursor and other clients use an `mcpServers` entry in the client
 {
   "mcpServers": {
     "fresnel": {
-      "command": "node",
-      "args": ["/path/to/fresnel/packages/mcp/dist/server.js", "--root", "/Users/you/Icons"]
+      "command": "npx",
+      "args": ["-y", "fresnel-mcp", "--root", "/Users/you/Icons"]
     }
   }
 }
@@ -212,7 +207,7 @@ The server also provides two resources, `fresnel://guide/icon-design` (Apple's i
 ## Command line
 
 ```bash
-node packages/cli/dist/cli.js --help        # after pnpm build ("fresnel" once it's on npm)
+npx fresnel-icon --help                     # or: npm i -g fresnel-icon, then "fresnel"
 ```
 
 | Command | What it does |
@@ -269,14 +264,14 @@ Yes. fresnel is MIT-licensed, and the icons you make are yours.
 | V-09 "More than 4 groups" | Combine layers that share glass settings into one group. |
 | Dark looks muddy | Give Dark its own background (**Color → Applies to → Dark**) and lighten the foreground colors slightly. |
 | An `.icns` or PNG export is blank in Safari | Export again, or use Chrome or the desktop app, and [report it](https://github.com/kajisho5/fresnel/issues) with your browser version. |
-| The desktop app won't open on macOS | The app isn't signed yet. Try to open it once, then go to System Settings → Privacy & Security and click **Open Anyway**. |
+| macOS says the app can't be checked | The release is signed and notarized. If you built it yourself, open it once, then click **Open Anyway** in System Settings → Privacy & Security. |
 | A recovery dialog appeared | fresnel found unsaved work from last time. **Restore** brings it back. **Discard** deletes the copy. |
 
 More in the [user guide](docs/USER_GUIDE.md#troubleshooting).
 
 ## Roadmap
 
-- npm packages for `fresnel-icon` and `fresnel-mcp`, and signed desktop releases
+- Multiple selection, Align and Distribute ([design](docs/design/multi-select.md), awaiting review)
 - A WebGL refraction preview
 - Recent files
 - visionOS and tvOS icons

@@ -335,7 +335,7 @@ fresnel render App/AppIcon.icon --sheet -o icon-sheet.png
 | The undo button is greyed out | Nothing to undo since the icon was opened. |
 | The export is blank in Safari | Try again, or use another browser, and please report it. |
 | **Assets.car** is unavailable | It needs the desktop app on macOS with Xcode 26 or later (`xcrun --find actool` must succeed). |
-| The macOS app is "damaged" or won't open | The build isn't signed. Open it once, then click **Open Anyway** in System Settings → Privacy & Security. |
+| macOS says the app can't be checked | Release builds are signed and notarized. A build you made yourself isn't: open it once, then click **Open Anyway** in System Settings → Privacy & Security. |
 | A recovery dialog appears at every start | Choose **Restore** and save, or **Discard**. |
 
 Still stuck? [Open an issue](https://github.com/kajisho5/fresnel/issues/new/choose) with your browser or OS version, the steps, and the `.icon` if you can share it.
