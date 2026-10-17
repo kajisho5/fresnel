@@ -202,3 +202,52 @@ describe('icns', () => {
     expect(icns.length).toBe(8 + 18 + 28);
   });
 });
+
+describe('platform variants and features', () => {
+  it('writes and resolves idiom (platform) variants', async () => {
+    const { setProp: sp, resolveProp: rp, serializeIconJson: ser } = await import('../src/index');
+    const doc = createDocument();
+    const g = addGroup(doc, { name: 'G' });
+    const ref = { kind: 'group' as const, id: g.id };
+    sp(doc, ref, 'opacity', 0.9);
+    sp(doc, ref, 'opacity', 0.5, { idiom: 'watchOS' });
+    sp(doc, ref, 'opacity', 0.3, { appearance: 'dark', idiom: 'watchOS' });
+    expect(rp(g.props.opacity, { appearance: 'default', idiom: 'iOS' }, 1)).toBe(0.9);
+    expect(rp(g.props.opacity, { appearance: 'default', idiom: 'watchOS' }, 1)).toBe(0.5);
+    expect(rp(g.props.opacity, { appearance: 'dark', idiom: 'watchOS' }, 1)).toBe(0.3);
+    expect(rp(g.props.opacity, { appearance: 'dark', idiom: 'macOS' }, 1)).toBe(0.9);
+    const json = JSON.parse(ser(doc));
+    expect(json.groups[0]['opacity-specializations']).toEqual([
+      { value: 0.9 },
+      { idiom: 'watchOS', value: 0.5 },
+      { appearance: 'dark', idiom: 'watchOS', value: 0.3 },
+    ]);
+    sp(doc, ref, 'opacity', null, { idiom: 'watchOS' });
+    sp(doc, ref, 'opacity', null, { appearance: 'dark', idiom: 'watchOS' });
+    expect(JSON.parse(ser(doc)).groups[0].opacity).toBe(0.9);
+  });
+
+  it('square idiom applies to iOS and macOS', async () => {
+    const { setProp: sp, resolveProp: rp } = await import('../src/index');
+    const doc = createDocument();
+    const g = addGroup(doc);
+    sp(doc, { kind: 'group', id: g.id }, 'opacity', 0.4, { idiom: 'square' });
+    expect(rp(g.props.opacity, { appearance: 'default', idiom: 'macOS' }, 1)).toBe(0.4);
+    expect(rp(g.props.opacity, { appearance: 'default', idiom: 'watchOS' }, 1)).toBe(1);
+  });
+
+  it('keeps "features" in sync with specular placement and refraction', () => {
+    const doc = createDocument();
+    const g = addGroup(doc);
+    const ref = { kind: 'group' as const, id: g.id };
+    setProp(doc, ref, 'specular', 'inside');
+    setProp(doc, ref, 'refractivity', { enabled: true, strength: 0.5, depth: 0.3 });
+    let json = JSON.parse(new TextDecoder().decode(writeBundle(doc)['icon.json']));
+    expect(json.features).toEqual(['refractivity', 'specular-location']);
+    setProp(doc, ref, 'specular', true);
+    setProp(doc, ref, 'refractivity', null);
+    json = JSON.parse(new TextDecoder().decode(writeBundle(doc)['icon.json']));
+    expect(json).not.toHaveProperty('features');
+    expect(() => setProp(doc, ref, 'specular', 'middle')).toThrow();
+  });
+});

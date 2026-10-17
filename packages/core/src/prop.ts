@@ -61,29 +61,55 @@ export function writeProps(
 
 const isBaseEntry = (e: SpecEntry) => e.appearance === undefined && e.idiom === undefined;
 
-export interface ResolveCtx {
-  appearance: Appearance;
+/** A variant of an attribute: an appearance, a platform (idiom), or both. Empty = base value. */
+export interface Variant {
+  appearance?: AppearanceKey;
   idiom?: Idiom;
 }
 
+export type VariantArg = AppearanceKey | Variant | undefined;
+
+export function toVariant(v: VariantArg): Variant {
+  if (!v) return {};
+  return typeof v === 'string' ? { appearance: v } : v;
+}
+
+const sameVariant = (e: SpecEntry, v: Variant) => e.appearance === v.appearance && e.idiom === v.idiom;
+const isEmpty = (v: Variant) => v.appearance === undefined && v.idiom === undefined;
+
+export interface ResolveCtx {
+  appearance: Appearance;
+  /** platform being previewed: iOS, macOS or watchOS */
+  idiom?: Idiom;
+}
+
+/** Idioms that apply to a platform, most specific first ("square" = shared iOS + macOS). */
+export function idiomsFor(idiom: Idiom | undefined): Idiom[] {
+  if (!idiom) return [];
+  if (idiom === 'iOS' || idiom === 'macOS') return [idiom, 'square'];
+  return [idiom];
+}
+
 /**
- * Resolves a prop for an appearance.
- * Order: appearance+idiom exact > appearance only > idiom only > base entry > plain > fallback.
+ * Resolves a prop for an appearance and platform.
+ * Order: appearance+idiom > appearance only > idiom only > base entry > plain > fallback.
  */
 export function resolveProp<T>(p: Prop | undefined, ctx: ResolveCtx, fallback: T): T {
   if (!p) return fallback;
   const keys = appearanceKeys(ctx.appearance);
+  const idioms = idiomsFor(ctx.idiom);
   const specs = p.specs ?? [];
-  for (const a of keys) {
-    const hit = specs.find((e) => e.appearance === a && ctx.idiom !== undefined && e.idiom === ctx.idiom);
-    if (hit) return hit.value as T;
-  }
+  for (const a of keys)
+    for (const i of idioms) {
+      const hit = specs.find((e) => e.appearance === a && e.idiom === i);
+      if (hit) return hit.value as T;
+    }
   for (const a of keys) {
     const hit = specs.find((e) => e.appearance === a && e.idiom === undefined);
     if (hit) return hit.value as T;
   }
-  if (ctx.idiom) {
-    const hit = specs.find((e) => e.appearance === undefined && e.idiom === ctx.idiom);
+  for (const i of idioms) {
+    const hit = specs.find((e) => e.appearance === undefined && e.idiom === i);
     if (hit) return hit.value as T;
   }
   const base = specs.find(isBaseEntry);
@@ -100,20 +126,41 @@ export function baseValue(p: Prop | undefined): unknown {
   return p.plain?.value;
 }
 
+/** Value stored for exactly this variant (no fallback), or undefined. */
+export function variantValue(p: Prop | undefined, v: VariantArg): unknown {
+  const vv = toVariant(v);
+  if (isEmpty(vv)) return baseValue(p);
+  return p?.specs?.find((e) => sameVariant(e, vv))?.value;
+}
+
+export function hasVariant(p: Prop | undefined, v: VariantArg): boolean {
+  const vv = toVariant(v);
+  return !isEmpty(vv) && !!p?.specs?.some((e) => sameVariant(e, vv));
+}
+
+/** @deprecated use hasVariant */
 export function hasOverride(p: Prop | undefined, key: AppearanceKey): boolean {
-  return !!p?.specs?.some((e) => e.appearance === key && e.idiom === undefined);
+  return hasVariant(p, { appearance: key });
+}
+
+/** All non-base variants stored for a prop. */
+export function variantsOf(p: Prop | undefined): Variant[] {
+  return (p?.specs ?? [])
+    .filter((e) => !isBaseEntry(e))
+    .map((e) => ({ ...(e.appearance ? { appearance: e.appearance as AppearanceKey } : {}), ...(e.idiom ? { idiom: e.idiom as Idiom } : {}) }));
 }
 
 export function overriddenAppearances(p: Prop | undefined): AppearanceKey[] {
-  return (p?.specs ?? [])
-    .filter((e) => e.appearance !== undefined && e.idiom === undefined)
-    .map((e) => e.appearance as AppearanceKey);
+  return variantsOf(p)
+    .filter((v) => v.appearance && !v.idiom)
+    .map((v) => v.appearance!);
 }
 
-/** Sets a value for all appearances (or for one appearance key when `appearance` is given). */
-export function setPropValue(props: PropMap, key: string, value: unknown, appearance?: AppearanceKey): void {
+/** Sets a value for all appearances, or for one variant (appearance and/or platform). */
+export function setPropValue(props: PropMap, key: string, value: unknown, variant?: VariantArg): void {
+  const v = toVariant(variant);
   const p = (props[key] ??= {});
-  if (!appearance) {
+  if (isEmpty(v)) {
     if (p.specs && p.specs.length > 0) {
       const b = p.specs.find(isBaseEntry);
       if (b) b.value = structuredClone(value);
@@ -124,22 +171,23 @@ export function setPropValue(props: PropMap, key: string, value: unknown, appear
     }
     return;
   }
-  // Icon Composer writes overrides as specializations with the base entry first.
+  // Icon Composer writes variants as specializations with the base entry first.
   if (!p.specs) p.specs = [];
   if (p.plain) {
     if (!p.specs.some(isBaseEntry)) p.specs.unshift({ value: p.plain.value });
     delete p.plain;
   }
-  const hit = p.specs.find((e) => e.appearance === appearance && e.idiom === undefined);
+  const hit = p.specs.find((e) => sameVariant(e, v));
   if (hit) hit.value = structuredClone(value);
-  else p.specs.push({ appearance, value: structuredClone(value) });
+  else p.specs.push({ ...(v.appearance ? { appearance: v.appearance } : {}), ...(v.idiom ? { idiom: v.idiom } : {}), value: structuredClone(value) });
 }
 
-/** Removes an appearance override. Collapses back to the plain key when only a base entry remains. */
-export function clearOverride(props: PropMap, key: string, appearance: AppearanceKey): void {
+/** Removes a variant. Collapses back to the plain key when only a base entry remains. */
+export function clearOverride(props: PropMap, key: string, variant: VariantArg): void {
+  const v = toVariant(variant);
   const p = props[key];
-  if (!p?.specs) return;
-  p.specs = p.specs.filter((e) => !(e.appearance === appearance && e.idiom === undefined));
+  if (!p?.specs || isEmpty(v)) return;
+  p.specs = p.specs.filter((e) => !sameVariant(e, v));
   if (p.specs.length === 1 && isBaseEntry(p.specs[0]!) && Object.keys(p.specs[0]!).length === 1) {
     p.plain = { value: p.specs[0]!.value };
     delete p.specs;

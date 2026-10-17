@@ -120,6 +120,11 @@ const en = {
   shortcutAppearance: '⌥{n}',
   invalidFile: 'This file isn’t a supported image or .icon bundle.',
   loadedSample: 'Loaded the sample icon',
+  recoveryTitle: 'Restore unsaved changes?',
+  recoveryBody: '“{name}” had unsaved changes when fresnel was last closed ({when}).',
+  discard: 'Discard',
+  restore: 'Restore',
+  restored: 'Restored your unsaved changes',
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -244,6 +249,11 @@ const ja: Record<MessageKey, string> = {
   shortcutAppearance: '⌥{n}',
   invalidFile: '対応していない画像か、.icon バンドルではない。',
   loadedSample: 'サンプルを開いた',
+  recoveryTitle: '未保存の変更を復元しますか？',
+  recoveryBody: '前回終了したとき「{name}」に未保存の変更があった（{when}）。',
+  discard: '破棄',
+  restore: '復元',
+  restored: '未保存の変更を復元した',
 };
 
 type Lang = 'en' | 'ja';

@@ -43,6 +43,10 @@ export interface RenderOptions {
   rim?: boolean;
   /** prefix for element ids (needed when several icons are inlined in one document) */
   idPrefix?: string;
+  /** platform being previewed (resolves platform variants). Default iOS */
+  idiom?: 'iOS' | 'macOS' | 'watchOS';
+  /** false = no Liquid Glass effects (Icon Composer's "Effects" toggle). Default true */
+  effects?: boolean;
 }
 
 const C = CANVAS;
@@ -145,7 +149,8 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   const appearance = opts.appearance ?? 'default';
   const size = opts.size ?? 1024;
   const mask = opts.mask ?? 'squircle';
-  const ctx: ResolveCtx = { appearance };
+  const ctx: ResolveCtx = { appearance, idiom: opts.idiom ?? 'iOS' };
+  const effects = opts.effects !== false;
   const dark = isDarkAppearance(appearance);
   const isClear = appearance === 'clear-light' || appearance === 'clear-dark';
   const isTinted = appearance === 'tinted-light' || appearance === 'tinted-dark';
@@ -261,7 +266,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
 
     // shadow
     const shadow = resolveProp<Shadow | null>(g.props.shadow, ctx, { kind: 'neutral', opacity: 0.5 });
-    if (shadow && shadow.kind !== 'none' && shadow.opacity > 0) {
+    if (effects && shadow && shadow.kind !== 'none' && shadow.opacity > 0) {
       const fid = defs.id('sh');
       if (shadow.kind === 'neutral') {
         defs.add(
@@ -280,31 +285,49 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
     // translucency: frosted, slightly magnified backdrop seen through the group's shape
     const tr = resolveProp<Translucency | null>(g.props.translucency, ctx, { enabled: true, value: 0.5 });
     const blurMat = resolveProp<number | null>(g.props['blur-material'], ctx, null);
-    const translucent = !!tr?.enabled && tr.value > 0;
-    if (translucent) {
+    const translucent = effects && !!tr?.enabled && tr.value > 0;
+    const refr = resolveProp<{ enabled?: boolean; strength?: number; depth?: number } | null>(g.props.refractivity, ctx, null);
+    const refracts = effects && !!refr?.enabled && glassEls.length > 0;
+    if (translucent || refracts) {
+      // refraction only applies to glass layers; translucency to the whole group
+      const maskSrc = translucent ? `<use href="#${contentId}"/>` : `<g${gTransform}>${glassEls.join('')}</g>`;
       const mid = defs.id('gm');
-      defs.add(`<mask id="${mid}" mask-type="alpha" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="${C}" height="${C}"><use href="#${contentId}"/></mask>`);
+      defs.add(`<mask id="${mid}" mask-type="alpha" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="${C}" height="${C}">${maskSrc}</mask>`);
       const fid = defs.id('bk');
-      defs.add(`<filter id="${fid}" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="${n(6 + (blurMat ?? 0.2) * 40)}"/></filter>`);
+      const blurPx = 4 + (blurMat ?? 0.2) * 40 + (refracts ? (refr!.depth ?? 0) * 10 : 0);
+      defs.add(`<filter id="${fid}" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="${n(blurPx)}"/></filter>`);
+      const zoom = 1.02 + (refracts ? (refr!.strength ?? 0) * 0.12 : 0.015);
       out.push(
-        `<g mask="url(#${mid})"><use href="#${stackId}" filter="url(#${fid})" transform="translate(${H} ${H}) scale(1.035) translate(${-H} ${-H})"/></g>`,
+        `<g mask="url(#${mid})"><use href="#${stackId}" filter="url(#${fid})" transform="translate(${H} ${H}) scale(${n(zoom)}) translate(${-H} ${-H})"/></g>`,
       );
     }
 
     // content
-    const gOpacity = resolveProp<number>(g.props.opacity, ctx, 1) * (translucent ? 1 - tr!.value * 0.55 : 1);
+    const gOpacity =
+      resolveProp<number>(g.props.opacity, ctx, 1) * (translucent ? 1 - tr!.value * 0.55 : 1) * (refracts && !translucent ? 1 - (refr!.strength ?? 0) * 0.3 : 1);
     const gBlend = cssBlend(resolveProp<string>(g.props['blend-mode'], ctx, 'normal'));
     out.push(`<use href="#${contentId}"${gOpacity < 1 ? ` opacity="${n(gOpacity)}"` : ''}${gBlend ? ` style="mix-blend-mode:${gBlend}"` : ''}/>`);
 
     // specular highlight on glass layers
-    const specular = resolveProp<boolean>(g.props.specular, ctx, true);
-    if (specular && glassEls.length) {
+    const specular = resolveProp<boolean | 'inside' | 'outside'>(g.props.specular, ctx, true);
+    if (effects && specular && glassEls.length) {
       const k = 7;
       const dx = n(-toLight.x * k);
       const dy = n(-toLight.y * k);
       const individual = resolveProp<string>(g.props.lighting, ctx, 'combined') === 'individual';
       const fid = defs.id('sp');
-      defs.add(
+      if (specular === 'outside') {
+        // highlight band just outside the shape, on the side facing the light
+        defs.add(
+          `<filter id="${fid}" x="-8%" y="-8%" width="116%" height="116%">` +
+            `<feMorphology in="SourceAlpha" operator="dilate" radius="6" result="d"/>` +
+            `<feComposite in="d" in2="SourceAlpha" operator="out" result="band"/>` +
+            `<feOffset in="SourceAlpha" dx="${n(-dx * 1.6)}" dy="${n(-dy * 1.6)}" result="lit"/>` +
+            `<feComposite in="band" in2="lit" operator="in" result="edge"/>` +
+            `<feGaussianBlur in="edge" stdDeviation="1.6" result="soft"/>` +
+            `<feFlood flood-color="#fff" flood-opacity="0.8"/><feComposite in2="soft" operator="in"/></filter>`,
+        );
+      } else defs.add(
         `<filter id="${fid}" x="-5%" y="-5%" width="110%" height="110%">` +
           `<feOffset in="SourceAlpha" dx="${dx}" dy="${dy}" result="sh"/>` +
           `<feComposite in="SourceAlpha" in2="sh" operator="out" result="edge"/>` +
@@ -359,7 +382,7 @@ export function renderSvg(doc: IconDocument, opts: RenderOptions = {}): string {
   const shape = maskPath(mask);
   defs.add(`<clipPath id="${clipId}"><path d="${shape}"/></clipPath>`);
   body.push(`<g clip-path="url(#${clipId})">${top}</g>`);
-  if (opts.rim !== false && mask !== 'none') {
+  if (effects && opts.rim !== false && mask !== 'none') {
     const rid = defs.id('rim');
     const lx = H + toLight.x * H;
     const ly = H + toLight.y * H;

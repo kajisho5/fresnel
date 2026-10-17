@@ -2,9 +2,9 @@
  * Editing operations. They mutate the document in place so they work both on
  * plain objects (CLI / MCP) and on Immer drafts (UI store).
  */
-import type { Asset, AppearanceKey, GroupNode, IconDocument, LayerNode, NodeRef } from './model';
+import type { Asset, GroupNode, IconDocument, LayerNode, NodeRef } from './model';
 import { newId } from './model';
-import { baseValue, clearOverride, setPropValue } from './prop';
+import { baseValue, clearOverride, setPropValue, toVariant, type VariantArg } from './prop';
 import { normalizeColorInput } from './color';
 import type { NodeKind } from './schema';
 import { validateAttr, type Fill } from './schema';
@@ -177,7 +177,7 @@ export function setProp(
   ref: NodeRef,
   key: string,
   value: unknown,
-  appearance?: AppearanceKey,
+  appearance?: VariantArg,
   /** internal: node not yet inserted */
   detached?: LayerNode,
 ): void {
@@ -193,12 +193,14 @@ export function setProp(
     const r = validateAttr(node.kind, key, v);
     if (!r.ok) throw new OpError(r.error);
   }
+  const variant = toVariant(appearance);
+  const hasVariant = variant.appearance !== undefined || variant.idiom !== undefined;
   if (v === undefined) {
-    if (appearance) clearOverride(node.props, key, appearance);
+    if (hasVariant) clearOverride(node.props, key, variant);
     else delete node.props[key];
     return;
   }
-  setPropValue(node.props, key, v, appearance);
+  setPropValue(node.props, key, v, variant);
 }
 
 function normalizeFillColors(f: Record<string, unknown>): Record<string, unknown> {
@@ -209,7 +211,7 @@ function normalizeFillColors(f: Record<string, unknown>): Record<string, unknown
   return o;
 }
 
-export function resetOverride(doc: IconDocument, ref: NodeRef, key: string, appearance: AppearanceKey): void {
+export function resetOverride(doc: IconDocument, ref: NodeRef, key: string, appearance: VariantArg): void {
   clearOverride(nodeOf(doc, ref).props, key, appearance);
 }
 

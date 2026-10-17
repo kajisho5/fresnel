@@ -2,7 +2,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { makeAsset } from './image';
 import type { Asset, GroupNode, IconDocument, LayerNode } from './model';
 import { newId } from './model';
-import { readProps, writeProps } from './prop';
+import { baseValue, readProps, setPropValue, writeProps } from './prop';
 import { IconJsonSchema } from './schema';
 
 /** A bundle as a flat file map: "icon.json", "Assets/<name>", plus any other files (kept verbatim). */
@@ -64,7 +64,38 @@ export function readBundle(files: FileMap): IconDocument & { extra: FileMap } {
   return { ...base, assets, extra };
 }
 
+/**
+ * Keeps the top-level "features" list in sync with what the document uses.
+ * [推測] Based on kylebshr/decant: Icon Composer lists "specular-location" when a
+ * group uses inside/outside specular placement and "refractivity" when refraction is on.
+ * Unknown feature strings are preserved.
+ */
+export function syncFeatures(doc: Pick<IconDocument, 'props' | 'groups'>): void {
+  const managed = ['refractivity', 'specular-location'];
+  let usesRefraction = false;
+  let usesSpecularLocation = false;
+  for (const g of doc.groups) {
+    const r = g.props.refractivity;
+    for (const v of [r?.plain?.value, ...(r?.specs ?? []).map((e) => e.value)]) {
+      if (v && typeof v === 'object' && (v as { enabled?: boolean }).enabled) usesRefraction = true;
+    }
+    const sp = g.props.specular;
+    for (const v of [sp?.plain?.value, ...(sp?.specs ?? []).map((e) => e.value)]) {
+      if (v === 'inside' || v === 'outside') usesSpecularLocation = true;
+    }
+  }
+  const current = (baseValue(doc.props.features) as string[] | undefined) ?? [];
+  const next = [...current.filter((f) => !managed.includes(f))];
+  if (usesRefraction) next.push('refractivity');
+  if (usesSpecularLocation) next.push('specular-location');
+  const same = next.length === current.length && next.every((f) => current.includes(f));
+  if (same) return;
+  if (next.length) setPropValue(doc.props, 'features', next.sort());
+  else delete doc.props.features;
+}
+
 export function writeBundle(doc: IconDocument, extra: FileMap = {}): FileMap {
+  syncFeatures(doc);
   const files: FileMap = { ...extra };
   files['icon.json'] = strToU8(serializeIconJson(doc));
   for (const a of Object.values(doc.assets)) files[`Assets/${a.name}`] = a.bytes;

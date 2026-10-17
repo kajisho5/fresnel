@@ -13,6 +13,7 @@ import { Compare } from './components/Compare';
 import { Inspector } from './components/Inspector';
 import { StatusBar } from './components/StatusBar';
 import { ExportSheet } from './components/ExportSheet';
+import { Recovery } from './components/Recovery';
 import { cx } from './components/controls';
 
 function useShortcuts() {
@@ -161,6 +162,7 @@ export function App({ platform }: { platform?: Platform }) {
       </div>
       <StatusBar />
       {exportOpen && <ExportSheet />}
+      <Recovery />
       {dragging && <div className="pointer-events-none fixed inset-[52px_0_24px_0] z-40 rounded-lg border-2 border-dashed border-accent bg-accent/5" />}
       <Toasts />
     </div>

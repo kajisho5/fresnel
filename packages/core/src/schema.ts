@@ -49,6 +49,11 @@ export type Shadow = z.infer<typeof ShadowSchema>;
 export const TranslucencySchema = z.object({ enabled: z.boolean(), value: z.number().min(0).max(1) }).loose();
 export type Translucency = z.infer<typeof TranslucencySchema>;
 
+export const RefractivitySchema = z
+  .object({ enabled: z.boolean(), strength: z.number().min(0).max(1), depth: z.number().min(0).max(1) })
+  .loose();
+export type Refractivity = z.infer<typeof RefractivitySchema>;
+
 export const SupportedPlatformsSchema = z
   .object({
     squares: z.union([z.literal('shared'), z.array(z.string())]).optional(),
@@ -71,6 +76,11 @@ export const DOCUMENT_ATTRS: Record<string, AttrDef> = {
     default: 'display-p3',
     description: 'Color space assumed for SVG colors without a profile',
   },
+  features: {
+    schema: z.array(z.string()),
+    default: [],
+    description: 'Format features in use (managed by fresnel: "specular-location", "refractivity")',
+  },
   'supported-platforms': {
     schema: SupportedPlatformsSchema,
     default: { squares: 'shared' },
@@ -84,7 +94,16 @@ export const GROUP_ATTRS: Record<string, AttrDef> = {
   opacity: { schema: unit, default: 1, description: 'Group opacity 0–1' },
   'blend-mode': { schema: BlendModeSchema, default: 'normal', description: 'Blend mode of the group' },
   lighting: { schema: z.enum(['combined', 'individual']), default: 'combined', description: 'Light layers as one shape or individually' },
-  specular: { schema: z.boolean(), default: true, description: 'Specular highlight on glass edges [default 推測]' },
+  specular: {
+    schema: z.union([z.boolean(), z.enum(['inside', 'outside'])]),
+    default: true,
+    description: 'Specular highlight: false = off, true = automatic, "inside" / "outside" = placement (needs the "specular-location" feature, added automatically)',
+  },
+  refractivity: {
+    schema: RefractivitySchema.nullable(),
+    default: null,
+    description: 'Refraction: {"enabled": true, "strength": 0–1, "depth": 0–1} (adds the "refractivity" feature automatically)',
+  },
   translucency: { schema: TranslucencySchema, default: { enabled: true, value: 0.5 }, description: 'Glass translucency [default 推測]' },
   'blur-material': { schema: unit.nullable(), default: null, description: 'Frosted blur strength 0–1, null = off' },
   shadow: { schema: ShadowSchema, default: { kind: 'neutral', opacity: 0.5 }, description: 'Drop shadow under the group [default 推測]' },
